@@ -54,14 +54,29 @@ const ACHIEVEMENT = {
 const mem = {};
 const S = {
   get: async k => {
-    try { const r = await window.storage.get(k, true); if (r) { const v = JSON.parse(r.value); mem[k]=v; return v; } }
-    catch (e) { /* fall through to mirror */ }
+    try {
+      const res = await fetch(`/api/storage/${k}`);
+      if (res.ok) {
+        const data = await res.json();
+        mem[k] = data.value;
+        return data.value;
+      }
+    } catch (e) {
+      console.error("fetch /api/storage GET failed, kept in memory:", e);
+    }
     return k in mem ? mem[k] : null;
   },
   set: async (k, v) => {
     mem[k] = v;
-    try { await window.storage.set(k, JSON.stringify(v), true); }
-    catch (e) { console.error("storage.set failed, kept in memory:", e); }
+    try {
+      await fetch(`/api/storage/${k}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: v })
+      });
+    } catch (e) {
+      console.error("fetch /api/storage POST failed, kept in memory:", e);
+    }
   },
 };
 
