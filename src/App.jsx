@@ -1824,6 +1824,12 @@ svg.lucide{display:block;flex-shrink:0}
       setUsers(u); setTrainings(t); setCatalog(normCatalog(c));
       setAppSettings({ pendingReminderDays: st.pendingReminderDays ?? 7, overdueReminderDays: st.overdueReminderDays ?? 3 });
       const fy = st.currentFY || getFY(); setCurrentFY(fy); setFyFilterD(fy); setFyFilterM(fy);
+      const sessionUserId = localStorage.getItem("tms:sessionUserId");
+      if (sessionUserId) {
+        const sessionUser = u.find(x => x.id === sessionUserId);
+        if (sessionUser) setCurrent(sessionUser);
+        else localStorage.removeItem("tms:sessionUserId");
+      }
       setLoading(false);
     })();
   }, []);
@@ -1834,8 +1840,8 @@ svg.lucide{display:block;flex-shrink:0}
   const saveSt = async s => { setAppSettings({ pendingReminderDays: s.pendingReminderDays, overdueReminderDays: s.overdueReminderDays }); await S.set("tms:settings", { ...s, currentFY }); };
 
   const refresh = async () => { setRefreshing(true); const u = await S.get("tms:users"); const t = await S.get("tms:trainings"); const c = await S.get("tms:catalog"); if (u) setUsers(u); if (t) setTrainings(t); if (c) setCatalog(normCatalog(c)); setTimeout(() => setRefreshing(false), 400); };
-  const login = u => { setCurrent(u); setTab(u.role === "supervisor" ? "dashboard" : "my-trainings"); };
-  const logout = () => setCurrent(null);
+  const login = u => { setCurrent(u); localStorage.setItem("tms:sessionUserId", u.id); setTab(u.role === "supervisor" ? "dashboard" : "my-trainings"); };
+  const logout = () => { setCurrent(null); localStorage.removeItem("tms:sessionUserId"); };
   const updateUser = async upd => { const u = users.map(x => x.id === upd.id ? upd : x); await saveU(u); };
 
   const markComplete = async (trainingId, partId, data) => {
@@ -1876,6 +1882,7 @@ svg.lucide{display:block;flex-shrink:0}
     const fu = [DEFAULT_SUPERVISOR], ft = [], fc = mkDefaultCatalog(), fs = { ...DEFAULT_SETTINGS, currentFY: getFY() };
     await S.set("tms:users", fu); await S.set("tms:trainings", ft); await S.set("tms:catalog", fc); await S.set("tms:settings", fs);
     setUsers(fu); setTrainings(ft); setCatalog(fc); setAppSettings(DEFAULT_SETTINGS); setCurrentFY(fs.currentFY); setFyFilterD(fs.currentFY); setFyFilterM(fs.currentFY); setCurrent(null);
+    localStorage.removeItem("tms:sessionUserId");
   };
 
   const goToCatalogNew = () => { setAdd(false); setTab("catalog"); setCatalogNewSignal(x => x + 1); };
