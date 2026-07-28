@@ -1,0 +1,1414 @@
+import { useState, useEffect } from "react";
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+const COLORS = ["#7c3aed", "#0369a1", "#065f46", "#b45309", "#be123c", "#1d4ed8", "#7e22ce", "#0f766e", "#9f1239", "#1e40af"];
+const DEFAULT_CATALOG = [
+  "Agile & Scrum Fundamentals", "Business Analysis Techniques",
+  "Data Analysis with Excel", "JIRA & Project Management",
+  "Stakeholder Communication", "SQL for Business Analysts",
+  "Power BI Dashboards", "Risk Management Basics",
+  "Requirements Elicitation", "Process Mapping & BPM",
+  "UX Research Methods", "Presentation Skills",
+];
+const DEFAULT_HR = { id: "hr0", loginId: "HR001", name: "HR Administrator", role: "hr", email: "hr@company.com", color: "#be123c", pin: "0000", pinSet: true };
+
+// ── Storage (all shared) ──────────────────────────────────────────────────────
+const S = {
+  get: async (key) => { try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : null; } catch { return null; } },
+  set: async (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) { console.error("storage set error", e); } },
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const initials = n => n.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+const today = () => new Date().toISOString().split("T")[0];
+const fmtDate = d => { if (!d) return ""; try { return new Date(d + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }); } catch { return d; } };
+const isOverdue = d => d && new Date(d + "T00:00:00") < new Date(new Date().toDateString());
+const daysSince = d => { if (!d) return Infinity; const diff = new Date(new Date().toDateString()) - new Date(d + "T00:00:00"); return Math.floor(diff / 86400000); };
+const cleanLinks = arr => (arr || []).filter(l => l.url && l.url.trim());
+
+function getFY(dateStr) {
+  const d = dateStr ? new Date(dateStr + "T00:00:00") : new Date();
+  const y = d.getFullYear(), m = d.getMonth() + 1;
+  return m >= 4 ? `${y}-${String(y + 1).slice(-2)}` : `${y - 1}-${String(y).slice(-2)}`;
+}
+function nextFY(fy) { const y = parseInt(fy.split("-")[0]); return `${y + 1}-${String(y + 2).slice(-2)}`; }
+
+// ── Atoms ─────────────────────────────────────────────────────────────────────
+const Avatar = ({ name, color, size = 36 }) => (
+  <div style={{ width: size, height: size, borderRadius: "50%", background: color || "#2563eb", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: size * 0.36, fontWeight: 700, flexShrink: 0 }}>
+    {initials(name)}
+  </div>
+);
+
+const Badge = ({ status, dueDate }) => {
+  if (status === "completed") return <span style={{ background: "#dcfce7", color: "#15803d", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20 }}>✓ Completed</span>;
+  if (status === "discarded") return <span style={{ background: "#f1f5f9", color: "#94a3b8", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20 }}>— Discarded</span>;
+  if (dueDate && isOverdue(dueDate)) return <span style={{ background: "#fee2e2", color: "#dc2626", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20 }}>🔴 Overdue</span>;
+  return <span style={{ background: "#fef9c3", color: "#92400e", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20 }}>⏳ Pending</span>;
+};
+
+const FYBadge = ({ fy }) => <span style={{ background: "#f1f5f9", color: "#64748b", fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 6, letterSpacing: 0.3 }}>FY {fy}</span>;
+
+const Btn = ({ onClick, disabled, children, variant = "primary", style = {}, type = "button", title }) => {
+  const base = { padding: "10px 18px", borderRadius: 9, fontSize: 14, fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer", border: "none", transition: "opacity 0.15s", opacity: disabled ? 0.5 : 1, ...style };
+  const map = {
+    primary: { background: "#2563eb", color: "white" },
+    ghost: { background: "white", color: "#374151", border: "1px solid #e2e8f0" },
+    danger: { background: "#fee2e2", color: "#dc2626", border: "1px solid #fca5a5" },
+    success: { background: "#dcfce7", color: "#15803d", border: "1px solid #86efac" },
+  };
+  return <button type={type} title={title} onClick={disabled ? undefined : onClick} style={{ ...base, ...map[variant] }}>{children}</button>;
+};
+
+const Input = ({ style, ...props }) => (
+  <input style={{ width: "100%", padding: "10px 13px", borderRadius: 9, border: "1.5px solid #e2e8f0", fontSize: 14, outline: "none", boxSizing: "border-box", ...style }} {...props} />
+);
+const Textarea = ({ style, ...props }) => (
+  <textarea style={{ width: "100%", padding: "10px 13px", borderRadius: 9, border: "1.5px solid #e2e8f0", fontSize: 14, outline: "none", fontFamily: "inherit", resize: "vertical", boxSizing: "border-box", ...style }} {...props} />
+);
+const Select = ({ style, children, ...props }) => (
+  <select style={{ width: "100%", padding: "10px 13px", borderRadius: 9, border: "1.5px solid #e2e8f0", fontSize: 14, outline: "none", cursor: "pointer", background: "white", boxSizing: "border-box", ...style }} {...props}>{children}</select>
+);
+const Label = ({ children, required }) => (
+  <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
+    {children} {required && <span style={{ color: "#ef4444" }}>*</span>}
+  </label>
+);
+const Field = ({ label, required, children, hint, style }) => (
+  <div style={{ marginBottom: 16, ...style }}>
+    <Label required={required}>{label}</Label>
+    {children}
+    {hint && <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 5 }}>{hint}</div>}
+  </div>
+);
+
+const Overlay = ({ children, onClose }) => (
+  <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: 20 }}>
+    <div onClick={e => e.stopPropagation()} style={{ maxHeight: "90vh", overflowY: "auto" }}>{children}</div>
+  </div>
+);
+const Card = ({ children, style }) => (
+  <div style={{ background: "white", borderRadius: 16, boxShadow: "0 20px 60px rgba(0,0,0,0.18)", padding: 32, width: 500, maxWidth: "100%", ...style }}>{children}</div>
+);
+
+// ── LINK LIST EDITOR (multi reference links) ─────────────────────────────────
+function LinkListEditor({ links, setLinks, urlPlaceholder, titlePlaceholder, addLabel }) {
+  const update = (i, field, val) => setLinks(prev => prev.map((l, idx) => idx === i ? { ...l, [field]: val } : l));
+  const add = () => setLinks(prev => [...prev, { url: "", title: "" }]);
+  const remove = (i) => setLinks(prev => prev.filter((_, idx) => idx !== i));
+  return (
+    <div>
+      {links.map((l, i) => (
+        <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+          <Input type="url" value={l.url} onChange={e => update(i, "url", e.target.value)} placeholder={urlPlaceholder} style={{ flex: 1.4 }} />
+          <Input type="text" value={l.title} onChange={e => update(i, "title", e.target.value)} placeholder={titlePlaceholder} style={{ flex: 1 }} />
+          {links.length > 1 && (
+            <button onClick={() => remove(i)} style={{ background: "#f1f5f9", border: "none", borderRadius: 8, width: 38, height: 38, cursor: "pointer", fontSize: 14, color: "#94a3b8", flexShrink: 0 }}>✕</button>
+          )}
+        </div>
+      ))}
+      <button onClick={add} style={{ background: "none", border: "1px dashed #cbd5e1", borderRadius: 8, padding: "7px 14px", fontSize: 12.5, color: "#64748b", cursor: "pointer", marginTop: 2 }}>
+        + {addLabel}
+      </button>
+    </div>
+  );
+}
+
+// ── LinkCard (read-only display) ─────────────────────────────────────────────
+const LinkCard = ({ link, theme }) => {
+  const themes = {
+    blue: { bg: "#eff6ff", border: "#bfdbfe", title: "#1d4ed8", sub: "#64748b" },
+    amber: { bg: "#fefce8", border: "#fde68a", title: "#92400e", sub: "#a16207" },
+  };
+  const t = themes[theme] || themes.blue;
+  return (
+    <a href={link.url} target="_blank" rel="noreferrer"
+      style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: t.bg, borderRadius: 10, border: `1px solid ${t.border}`, textDecoration: "none", marginBottom: 8 }}>
+      <span style={{ fontSize: 20 }}>🔗</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: t.title }}>{link.title || "Reference Link"}</div>
+        <div style={{ fontSize: 11, color: t.sub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{link.url}</div>
+      </div>
+      <span style={{ fontSize: 12, color: t.title, background: "white", padding: "4px 10px", borderRadius: 6, border: `1px solid ${t.border}`, flexShrink: 0 }}>Open ↗</span>
+    </a>
+  );
+};
+
+// ── LOGIN (email-verified self-service PIN) ──────────────────────────────────
+function LoginScreen({ users, onLogin, onUpdateUser }) {
+  const [role, setRole] = useState("member"); // member | manager | hr
+  const [loginId, setLoginId] = useState("");
+  const [userId, setUserId] = useState("");
+  const [stage, setStage] = useState("enter-id"); // enter-id | pin | setup-email | setup-pin
+  const [pin, setPin] = useState("");
+  const [email, setEmail] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [error, setError] = useState("");
+
+  const user = users.find(u => u.id === userId);
+  const reset = () => { setError(""); setPin(""); setEmail(""); setNewPin(""); setConfirmPin(""); };
+
+  const handleIdSubmit = () => {
+    const found = users.find(u => u.loginId?.trim().toLowerCase() === loginId.trim().toLowerCase() && u.role === role);
+    if (!found) {
+      setError(`No ${role === "hr" ? "HR" : role === "manager" ? "Manager" : "Employee"} found with Login ID "${loginId}".`);
+      return;
+    }
+    setError("");
+    setUserId(found.id);
+    setStage(found.pinSet ? "pin" : "setup-email");
+  };
+
+  const submitPin = () => {
+    if ((user.pin || "") !== pin) { setError("Incorrect PIN. Please try again."); setPin(""); return; }
+    onLogin(user);
+  };
+
+  const submitEmail = () => {
+    if (!user.email) { setError("No email is on file for this profile. Please contact HR to add one."); return; }
+    if (email.trim().toLowerCase() !== user.email.trim().toLowerCase()) { setError("This email does not match our records. Please contact HR."); return; }
+    setError(""); setStage("setup-pin");
+  };
+
+  const submitNewPin = () => {
+    if (newPin.length < 4) { setError("PIN must be at least 4 digits."); return; }
+    if (newPin !== confirmPin) { setError("PINs do not match. Please try again."); return; }
+    const updated = { ...user, pin: newPin, pinSet: true };
+    onUpdateUser(updated);
+    onLogin(updated);
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg,#eff6ff,#f0fdf4)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "system-ui,sans-serif" }}>
+      <div style={{ background: "white", borderRadius: 20, padding: "48px 40px", width: 390, boxShadow: "0 8px 40px rgba(0,0,0,0.1)" }}>
+        <div style={{ fontSize: 36, marginBottom: 18 }}>🎯</div>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#0f172a", margin: "0 0 6px" }}>Training Tracker</h1>
+        <p style={{ fontSize: 14, color: "#64748b", margin: "0 0 28px" }}>Team learning, made accountable.</p>
+
+        {stage === "enter-id" && (
+          <>
+            <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
+              {[
+                { id: "member", label: "Employee" },
+                { id: "manager", label: "Manager" },
+                { id: "hr", label: "HR" }
+              ].map(r => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => { setRole(r.id); setError(""); }}
+                  style={{
+                    flex: 1,
+                    padding: "8px 0",
+                    borderRadius: 8,
+                    border: "1.5px solid",
+                    borderColor: role === r.id ? "#2563eb" : "#e2e8f0",
+                    background: role === r.id ? "#eff6ff" : "white",
+                    color: role === r.id ? "#2563eb" : "#64748b",
+                    fontWeight: 600,
+                    fontSize: 13,
+                    cursor: "pointer"
+                  }}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+
+            <Field label="Login ID" required>
+              <Input
+                type="text"
+                value={loginId}
+                onChange={e => { setLoginId(e.target.value); setError(""); }}
+                placeholder={`e.g. ${role === "hr" ? "HR001" : role === "manager" ? "MGR001" : "EMP101"}`}
+                onKeyDown={e => e.key === "Enter" && handleIdSubmit()}
+              />
+            </Field>
+            {error && <div style={{ fontSize: 13, color: "#dc2626", marginBottom: 12 }}>⚠ {error}</div>}
+            <Btn onClick={handleIdSubmit} disabled={!loginId.trim()} style={{ width: "100%", padding: 13, fontSize: 15 }}>Continue →</Btn>
+          </>
+        )}
+
+        {stage === "pin" && (
+          <>
+            <Field label="PIN" required>
+              <Input type="password" maxLength={8} value={pin} onChange={e => { setPin(e.target.value); setError(""); }}
+                onKeyDown={e => e.key === "Enter" && submitPin()} placeholder="Enter your PIN"
+                style={{ letterSpacing: 4, borderColor: error ? "#fca5a5" : "#e2e8f0" }} />
+            </Field>
+            {error && <div style={{ fontSize: 13, color: "#dc2626", marginBottom: 12 }}>⚠ {error}</div>}
+            <Btn onClick={submitPin} disabled={!pin} style={{ width: "100%", padding: 13, fontSize: 15 }}>Continue →</Btn>
+            <p style={{ textAlign: "center", fontSize: 11.5, color: "#94a3b8", marginTop: 16 }}>Forgot your PIN? Ask HR to reset it.</p>
+          </>
+        )}
+
+        {stage === "setup-email" && (
+          <>
+            <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: "#1d4ed8", marginBottom: 16 }}>
+              👋 First time here? Verify your email to set up a personal PIN.
+            </div>
+            <Field label="Your registered email" required>
+              <Input type="email" value={email} onChange={e => { setEmail(e.target.value); setError(""); }}
+                onKeyDown={e => e.key === "Enter" && submitEmail()} placeholder="name@company.com" />
+            </Field>
+            {error && <div style={{ fontSize: 13, color: "#dc2626", marginBottom: 12 }}>⚠ {error}</div>}
+            <Btn onClick={submitEmail} disabled={!email} style={{ width: "100%", padding: 13, fontSize: 15 }}>Verify →</Btn>
+          </>
+        )}
+
+        {stage === "setup-pin" && (
+          <>
+            <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: "#15803d", marginBottom: 16 }}>
+              ✅ Email verified! Now create a personal PIN — only you will know it.
+            </div>
+            <Field label="Create PIN (min 4 digits)" required>
+              <Input type="password" maxLength={8} value={newPin} onChange={e => { setNewPin(e.target.value); setError(""); }} placeholder="e.g. 4821" style={{ letterSpacing: 4, marginBottom: 8 }} />
+            </Field>
+            <Field label="Confirm PIN" required>
+              <Input type="password" maxLength={8} value={confirmPin} onChange={e => { setConfirmPin(e.target.value); setError(""); }}
+                onKeyDown={e => e.key === "Enter" && submitNewPin()} placeholder="Re-enter PIN" style={{ letterSpacing: 4 }} />
+            </Field>
+            {error && <div style={{ fontSize: 13, color: "#dc2626", marginBottom: 12 }}>⚠ {error}</div>}
+            <Btn onClick={submitNewPin} disabled={!newPin || !confirmPin} style={{ width: "100%", padding: 13, fontSize: 15 }}>Set PIN & Continue →</Btn>
+          </>
+        )}
+
+        {stage === "enter-id" && (
+          <p style={{ textAlign: "center", fontSize: 11.5, color: "#94a3b8", marginTop: 16, lineHeight: 1.7 }}>
+            Enter your Login ID to continue. First-time users will verify their email to set up a personal PIN.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── SIDEBAR ───────────────────────────────────────────────────────────────────
+function Sidebar({ user, tab, setTab, onLogout, myDone, myTotal, trainings, currentFY }) {
+  const isManager = user.role === "manager";
+  const menteeIds = user.menteeIds || [];
+  const myTrainings = trainings.filter(t => !isManager || menteeIds.includes(t.userId));
+  const overdue = myTrainings.filter(t => t.status === "pending" && isOverdue(t.dueDate)).length;
+
+  let nav = [];
+  if (user.role === "hr") {
+    nav = [
+      { id: "dashboard", icon: "📊", label: "Dashboard" },
+      { id: "knowledge-hub", icon: "💡", label: "Knowledge Hub" },
+      { id: "settings", icon: "⚙️", label: "Settings" },
+    ];
+  } else if (user.role === "manager") {
+    nav = [
+      { id: "dashboard", icon: "📊", label: "Dashboard" },
+      { id: "mentees", icon: "👥", label: "My Mentees" },
+      { id: "knowledge-hub", icon: "💡", label: "Knowledge Hub" },
+      { id: "catalog", icon: "📁", label: "Training Catalog" },
+      { id: "reminders", icon: "📧", label: "Reminders", badge: overdue || null },
+    ];
+  } else {
+    nav = [
+      { id: "my-trainings", icon: "📚", label: "My Trainings", badge: `${myDone}/${myTotal}` },
+      { id: "knowledge-hub", icon: "💡", label: "Knowledge Hub" },
+    ];
+  }
+
+  return (
+    <div style={{ width: 220, background: "white", borderRight: "1px solid #e9eef5", display: "flex", flexDirection: "column", padding: "22px 12px", flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 9, paddingLeft: 8, marginBottom: 6 }}>
+        <span style={{ fontSize: 22 }}>🎯</span>
+        <span style={{ fontSize: 15, fontWeight: 700, color: "#2563eb" }}>TrainTrack</span>
+      </div>
+      <div style={{ paddingLeft: 8, marginBottom: 22 }}><FYBadge fy={currentFY} /></div>
+      <nav style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
+        {nav.map(item => {
+          const active = tab === item.id;
+          return (
+            <button key={item.id} onClick={() => setTab(item.id)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 12px", borderRadius: 9, border: "none", background: active ? "#eff6ff" : "transparent", color: active ? "#2563eb" : "#4b5563", fontSize: 14, fontWeight: active ? 600 : 400, cursor: "pointer", textAlign: "left", width: "100%" }}>
+              <span>{item.icon} {item.label}</span>
+              {item.badge != null && <span style={{ background: active ? "#dbeafe" : "#f1f5f9", color: active ? "#1d4ed8" : "#6b7280", fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 20 }}>{item.badge}</span>}
+            </button>
+          );
+        })}
+      </nav>
+      <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px 8px", marginBottom: 10 }}>
+          <Avatar name={user.name} color={user.color} size={30} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.name.split(" ")[0]}</div>
+            <div style={{ fontSize: 11, color: "#94a3b8", textTransform: "capitalize" }}>{user.role}</div>
+          </div>
+        </div>
+        <Btn variant="ghost" onClick={onLogout} style={{ width: "100%", fontSize: 13, padding: "8px" }}>🔒 Logout</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ── DASHBOARD ─────────────────────────────────────────────────────────────────
+function Dashboard({ users, trainings, onAdd, setTab, onRefresh, refreshing, fyList, fyFilter, setFyFilter, currentUser }) {
+  const isManager = currentUser?.role === "manager";
+  const menteeIds = currentUser?.menteeIds || [];
+  const members = users.filter(u => u.role === "member" && (!isManager || menteeIds.includes(u.id)));
+  const visible = trainings.filter(t => t.fy === fyFilter && t.status !== "discarded" && (!isManager || menteeIds.includes(t.userId)));
+  const total = visible.length, done = visible.filter(t => t.status === "completed").length;
+  const pct = total ? Math.round(done / total * 100) : 0;
+  const overdue = visible.filter(t => t.status === "pending" && isOverdue(t.dueDate)).length;
+
+  if (isManager && menteeIds.length === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: 48, background: "white", borderRadius: 13, border: "1px dashed #e2e8f0", marginTop: 20 }}>
+        <div style={{ fontSize: 36, marginBottom: 12 }}>👥</div>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", margin: "0 0 8px" }}>No Mentees Selected</h2>
+        <p style={{ fontSize: 14, color: "#64748b", maxWidth: 400, margin: "0 auto 20px", lineHeight: 1.6 }}>
+          You need to select which employees you are mentoring before you can assign tasks or see progress statistics.
+        </p>
+        <Btn onClick={() => setTab("mentees")}>Select Mentees Now</Btn>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: "#0f172a", margin: "0 0 4px" }}>Team Dashboard</h1>
+          <div style={{ fontSize: 14, color: "#64748b" }}>Training progress overview</div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Select value={fyFilter} onChange={e => setFyFilter(e.target.value)} style={{ width: 130 }}>
+            {fyList.map(fy => <option key={fy} value={fy}>FY {fy}</option>)}
+          </Select>
+          <Btn variant="ghost" onClick={onRefresh} style={{ fontSize: 13, padding: "8px 14px" }}>{refreshing ? "⟳ …" : "⟳ Refresh"}</Btn>
+          <Btn variant="ghost" onClick={() => setTab("reminders")} style={{ fontSize: 13, padding: "8px 14px" }}>📧 Reminders</Btn>
+          <Btn onClick={onAdd} style={{ fontSize: 13, padding: "8px 16px" }}>+ Assign Training</Btn>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 13, marginBottom: 28 }}>
+        {[
+          { label: "Team Members", value: members.length, note: "active", bg: "#eff6ff", tc: "#1d4ed8" },
+          { label: `FY ${fyFilter} Trainings`, value: total, note: "assigned", bg: "#f0fdf4", tc: "#15803d" },
+          { label: "Completion", value: `${pct}%`, note: `${done}/${total} done`, bg: "#fef3c7", tc: "#92400e" },
+          { label: "Overdue", value: overdue, note: "need action", bg: overdue ? "#fee2e2" : "#f8fafc", tc: overdue ? "#dc2626" : "#94a3b8" },
+        ].map(s => (
+          <div key={s.label} style={{ background: s.bg, borderRadius: 13, padding: "18px 20px" }}>
+            <div style={{ fontSize: 28, fontWeight: 700, color: s.tc }}>{s.value}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: s.tc }}>{s.label}</div>
+            <div style={{ fontSize: 11.5, color: s.tc, opacity: 0.65, marginTop: 2 }}>{s.note}</div>
+          </div>
+        ))}
+      </div>
+
+      <h2 style={{ fontSize: 15, fontWeight: 600, color: "#374151", margin: "0 0 13px" }}>Individual Progress — FY {fyFilter}</h2>
+      {members.length === 0 ? (
+        <div style={{ background: "white", border: "1px dashed #e2e8f0", borderRadius: 13, padding: 40, textAlign: "center", color: "#94a3b8" }}>
+          No team members yet. Add them in Settings.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12, marginBottom: 30 }}>
+          {members.map(u => {
+            const ut = visible.filter(t => t.userId === u.id);
+            const ud = ut.filter(t => t.status === "completed").length;
+            const up = ut.length ? Math.round(ud / ut.length * 100) : 0;
+            const barColor = up >= 60 ? "#22c55e" : up >= 30 ? "#f59e0b" : "#ef4444";
+            const pending = ut.filter(t => t.status === "pending");
+            const od = pending.filter(t => isOverdue(t.dueDate));
+            return (
+              <div key={u.id} style={{ background: "white", border: "1px solid #e9eef5", borderRadius: 13, padding: "16px 18px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 11 }}>
+                  <Avatar name={u.name} color={u.color} size={36} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.name}</div>
+                    <div style={{ fontSize: 12, color: "#94a3b8" }}>{ud}/{ut.length} done {od.length > 0 && <span style={{ color: "#dc2626", fontWeight: 600 }}>· {od.length} overdue</span>}</div>
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: barColor }}>{up}%</div>
+                </div>
+                <div style={{ background: "#f1f5f9", borderRadius: 6, height: 6, overflow: "hidden", marginBottom: 10 }}>
+                  <div style={{ height: "100%", width: `${up}%`, background: barColor, borderRadius: 6 }} />
+                </div>
+                {ut.length === 0 ? (
+                  <div style={{ fontSize: 12, color: "#cbd5e1", fontStyle: "italic" }}>No trainings assigned for this FY.</div>
+                ) : pending.slice(0, 3).map(t => (
+                  <div key={t.id} style={{ fontSize: 12, color: isOverdue(t.dueDate) ? "#dc2626" : "#6b7280", display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
+                    <span style={{ fontSize: 9 }}>●</span>{t.title}{t.dueDate && <span style={{ color: isOverdue(t.dueDate) ? "#dc2626" : "#94a3b8", marginLeft: 4 }}>· {fmtDate(t.dueDate)}</span>}
+                  </div>
+                ))}
+                {pending.length > 3 && <div style={{ fontSize: 12, color: "#94a3b8", paddingLeft: 13 }}>+{pending.length - 3} more</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <h2 style={{ fontSize: 15, fontWeight: 600, color: "#374151", margin: "0 0 13px" }}>Year-wise Summary</h2>
+      <div style={{ background: "white", border: "1px solid #e9eef5", borderRadius: 13, overflow: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: "#f8fafc" }}>
+              <th style={{ textAlign: "left", padding: "10px 16px", color: "#64748b", fontWeight: 600 }}>Member</th>
+              {fyList.map(fy => <th key={fy} style={{ textAlign: "center", padding: "10px 12px", color: "#64748b", fontWeight: 600 }}>FY {fy}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {members.map(u => (
+              <tr key={u.id} style={{ borderTop: "1px solid #f1f5f9" }}>
+                <td style={{ padding: "10px 16px", fontWeight: 500, color: "#0f172a", display: "flex", alignItems: "center", gap: 8 }}>
+                  <Avatar name={u.name} color={u.color} size={22} />{u.name}
+                </td>
+                {fyList.map(fy => {
+                  const ut = trainings.filter(t => t.userId === u.id && t.fy === fy);
+                  const ud = ut.filter(t => t.status === "completed").length;
+                  if (ut.length === 0) return <td key={fy} style={{ textAlign: "center", padding: "10px 12px", color: "#cbd5e1" }}>—</td>;
+                  return (
+                    <td key={fy} style={{ textAlign: "center", padding: "10px 12px", color: "#374151" }}>
+                      <span style={{ fontWeight: 600, color: ud === ut.length ? "#15803d" : "#374151" }}>{ud}/{ut.length}</span>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── MY TRAININGS ──────────────────────────────────────────────────────────────
+function MyTrainings({ trainings, onComplete, onDetail, fyList, fyFilter, setFyFilter }) {
+  const [filter, setFilter] = useState("all");
+  const fyTrainings = trainings.filter(t => t.fy === fyFilter);
+  const filtered = fyTrainings.filter(t => filter === "all" || t.status === filter || (filter === "overdue" && t.status === "pending" && isOverdue(t.dueDate)));
+  const active = fyTrainings.filter(t => t.status !== "discarded");
+  const done = active.filter(t => t.status === "completed").length;
+  const carriedIn = fyTrainings.filter(t => t.carriedFromFy);
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 22 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: "#0f172a", margin: "0 0 4px" }}>My Trainings</h1>
+          <div style={{ fontSize: 14, color: "#64748b" }}>{done} of {active.length} completed in FY {fyFilter}</div>
+        </div>
+        <Select value={fyFilter} onChange={e => setFyFilter(e.target.value)} style={{ width: 130 }}>
+          {fyList.map(fy => <option key={fy} value={fy}>FY {fy}</option>)}
+        </Select>
+      </div>
+
+      {carriedIn.length > 0 && (
+        <div style={{ background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 10, padding: "10px 16px", fontSize: 12.5, color: "#6d28d9", marginBottom: 16 }}>
+          ↪ {carriedIn.length} training(s) carried forward from FY {carriedIn[0].carriedFromFy} into this year.
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+        {[["all", "All"], ["pending", "Pending"], ["overdue", "🔴 Overdue"], ["completed", "Completed"]].map(([f, l]) => (
+          <button key={f} onClick={() => setFilter(f)} style={{ padding: "6px 14px", borderRadius: 20, border: "1.5px solid", borderColor: filter === f ? "#2563eb" : "#e2e8f0", background: filter === f ? "#eff6ff" : "white", color: filter === f ? "#2563eb" : "#64748b", fontSize: 13, cursor: "pointer", fontWeight: filter === f ? 600 : 400 }}>{l}</button>
+        ))}
+      </div>
+
+      <div style={{ background: "white", borderRadius: 13, border: "1px solid #e9eef5", overflow: "hidden" }}>
+        {filtered.length === 0 ? (
+          <div style={{ padding: 40, textAlign: "center", color: "#94a3b8", fontSize: 14 }}>No trainings in this filter.</div>
+        ) : filtered.map((t, i) => (
+          <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 13, padding: "14px 20px", borderBottom: i < filtered.length - 1 ? "1px solid #f8fafc" : "none", background: isOverdue(t.dueDate) && t.status === "pending" ? "#fff7f7" : "white" }}>
+            <div style={{ fontSize: 18, flexShrink: 0 }}>{t.status === "completed" ? "✅" : t.status === "discarded" ? "🗑" : "⏳"}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 500, fontSize: 14, color: t.status === "discarded" ? "#94a3b8" : "#0f172a" }}>{t.title}{t.carriedFromFy && <span style={{ marginLeft: 8 }}><FYBadge fy={`↪ ${t.carriedFromFy}`} /></span>}</div>
+              <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2, display: "flex", gap: 10 }}>
+                {t.dueDate && <span style={{ color: isOverdue(t.dueDate) && t.status === "pending" ? "#dc2626" : "#94a3b8" }}>📅 Due: {fmtDate(t.dueDate)}</span>}
+                {t.completedDate && <span>✓ {fmtDate(t.completedDate)}</span>}
+                {cleanLinks(t.resources).length > 0 && <span style={{ color: "#2563eb" }}>📎 {cleanLinks(t.resources).length} resource(s) provided</span>}
+              </div>
+            </div>
+            <Badge status={t.status} dueDate={t.dueDate} />
+            <Btn variant="ghost" onClick={() => onDetail(t)} style={{ fontSize: 12, padding: "6px 12px", flexShrink: 0 }}>View Details</Btn>
+            {t.status === "pending" && (
+              <Btn onClick={() => onComplete(t)} style={{ fontSize: 13, padding: "7px 14px", flexShrink: 0 }}>Mark Done</Btn>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── KNOWLEDGE HUB ─────────────────────────────────────────────────────────────
+function KnowledgeHub({ trainings, users, onDetail }) {
+  const [search, setSearch] = useState("");
+  const done = trainings.filter(t => t.status === "completed");
+  const filtered = done.filter(t =>
+    t.title.toLowerCase().includes(search.toLowerCase()) ||
+    (t.notes || "").toLowerCase().includes(search.toLowerCase())
+  );
+  const getUser = id => users.find(u => u.id === id) || { name: "Unknown", color: "#94a3b8" };
+
+  return (
+    <div>
+      <div style={{ marginBottom: 22 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#0f172a", margin: "0 0 4px" }}>Knowledge Hub</h1>
+        <div style={{ fontSize: 14, color: "#64748b" }}>Completed trainings & shared learnings from your whole team — across all years</div>
+      </div>
+      <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search trainings, notes..." style={{ marginBottom: 20 }} />
+      {filtered.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 48, color: "#94a3b8", fontSize: 14 }}>
+          {done.length === 0 ? "No completed trainings yet — be the first! 🚀" : "No results found."}
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 13 }}>
+          {filtered.map(t => {
+            const u = getUser(t.userId);
+            return (
+              <div key={t.id} onClick={() => onDetail(t)} style={{ background: "white", border: "1px solid #e9eef5", borderRadius: 13, padding: "18px 20px", cursor: "pointer" }}
+                onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 20px rgba(37,99,235,0.12)"}
+                onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}>
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: "#0f172a", flex: 1 }}>{t.title}</div>
+                  <FYBadge fy={t.fy} />
+                </div>
+                {t.notes ? (
+                  <div style={{ fontSize: 13, color: "#475569", lineHeight: 1.6, marginBottom: 12, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{t.notes}</div>
+                ) : (
+                  <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 12, fontStyle: "italic" }}>No notes added.</div>
+                )}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Avatar name={u.name} color={u.color} size={24} />
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 500, color: "#374151" }}>{u.name}</div>
+                      {t.completedDate && <div style={{ fontSize: 11, color: "#94a3b8" }}>{fmtDate(t.completedDate)}</div>}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 12, color: "#2563eb", background: "#eff6ff", padding: "3px 10px", borderRadius: 6 }}>👁 View Details</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── DETAIL MODAL ──────────────────────────────────────────────────────────────
+function DetailModal({ training, users, onClose }) {
+  const u = users.find(x => x.id === training.userId) || { name: "Unknown", color: "#94a3b8" };
+  const resources = cleanLinks(training.resources);
+  const outcomes = cleanLinks(training.outcomes);
+  return (
+    <Overlay onClose={onClose}>
+      <Card style={{ width: 540 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20 }}>
+          <div style={{ flex: 1, marginRight: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#2563eb", letterSpacing: 1, textTransform: "uppercase", marginBottom: 6, display: "flex", gap: 8, alignItems: "center" }}>
+              Training Detail <FYBadge fy={training.fy} />
+            </div>
+            <h2 style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", margin: 0, lineHeight: 1.4 }}>{training.title}</h2>
+          </div>
+          <button onClick={onClose} style={{ background: "#f1f5f9", border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 16, flexShrink: 0 }}>✕</button>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: "#f8fafc", borderRadius: 10, marginBottom: 20 }}>
+          <Avatar name={u.name} color={u.color} size={36} />
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>{u.name}</div>
+            <div style={{ fontSize: 12, color: "#94a3b8" }}>
+              {training.status === "completed" ? `Completed on ${fmtDate(training.completedDate)}` : training.dueDate ? `Due: ${fmtDate(training.dueDate)}` : "No due date set"}
+            </div>
+          </div>
+          <Badge status={training.status} dueDate={training.dueDate} />
+        </div>
+
+        {/* Supervisor-provided resources */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 10 }}>📌 Resources Provided While Assigning</div>
+          {resources.length > 0 ? resources.map((l, i) => <LinkCard key={i} link={l} theme="amber" />) : (
+            <div style={{ padding: "12px 16px", background: "#f8fafc", borderRadius: 10, border: "1px dashed #e2e8f0", fontSize: 13, color: "#94a3b8", fontStyle: "italic" }}>No resources were provided.</div>
+          )}
+        </div>
+
+        {/* Notes */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 10 }}>📝 Key Learnings & Outcome Notes</div>
+          <div style={{ background: "#f8fafc", borderRadius: 10, padding: "14px 16px", fontSize: 14, color: "#374151", lineHeight: 1.8, border: "1px solid #e9eef5", whiteSpace: "pre-wrap", minHeight: 60 }}>
+            {training.notes || <span style={{ color: "#94a3b8", fontStyle: "italic" }}>{training.status === "completed" ? "No notes added." : "Not completed yet."}</span>}
+          </div>
+        </div>
+
+        {/* Outcome references */}
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 10 }}>📎 Outcome Reference Material</div>
+          {outcomes.length > 0 ? outcomes.map((l, i) => <LinkCard key={i} link={l} theme="blue" />) : (
+            <div style={{ padding: "12px 16px", background: "#f8fafc", borderRadius: 10, border: "1px dashed #e2e8f0", fontSize: 13, color: "#94a3b8", fontStyle: "italic" }}>
+              {training.status === "completed" ? "No reference material added." : "Not completed yet."}
+            </div>
+          )}
+        </div>
+
+        <Btn variant="ghost" onClick={onClose} style={{ width: "100%" }}>Close</Btn>
+      </Card>
+    </Overlay>
+  );
+}
+
+// ── COMPLETE MODAL ────────────────────────────────────────────────────────────
+function CompleteModal({ training, onSubmit, onClose }) {
+  const [notes, setNotes] = useState("");
+  const [outcomes, setOutcomes] = useState([{ url: "", title: "" }]);
+  const resources = cleanLinks(training.resources);
+  const ok = notes.trim().length > 0 && cleanLinks(outcomes).length > 0;
+
+  return (
+    <Overlay onClose={onClose}>
+      <Card>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>Mark as Completed ✅</div>
+        <div style={{ fontSize: 13, color: "#64748b", padding: "8px 12px", background: "#f8fafc", borderRadius: 8, marginBottom: 12 }}>{training.title}</div>
+
+        {resources.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: "#92400e", marginBottom: 6 }}>📌 Resources provided by your supervisor:</div>
+            {resources.map((l, i) => (
+              <a key={i} href={l.url} target="_blank" rel="noreferrer" style={{ display: "block", fontSize: 12.5, color: "#92400e", background: "#fefce8", border: "1px solid #fde68a", borderRadius: 8, padding: "8px 12px", marginBottom: 6, textDecoration: "none" }}>
+                🔗 {l.title || "Open material"} ↗
+              </a>
+            ))}
+          </div>
+        )}
+
+        <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "8px 12px", fontSize: 12.5, color: "#1d4ed8", marginBottom: 16 }}>
+          ℹ️ Notes and at least one outcome reference link are <strong>mandatory</strong> — this helps the whole team benefit from your learning.
+        </div>
+
+        <Field label="Key Learnings / Outcome Notes" required>
+          <Textarea value={notes} onChange={e => setNotes(e.target.value)} rows={4}
+            placeholder="What did you learn? Share key takeaways so the team benefits too..." />
+        </Field>
+        <Field label="Outcome Reference Material" required hint="Docs, recordings, certificates, blogs — anything that backs your learning. Add as many as you like.">
+          <LinkListEditor links={outcomes} setLinks={setOutcomes} urlPlaceholder="https://..." titlePlaceholder="Link title" addLabel="Add another reference" />
+        </Field>
+        <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+          <Btn variant="ghost" onClick={onClose} style={{ flex: 1 }}>Cancel</Btn>
+          <Btn onClick={() => onSubmit(training.id, { notes, outcomes: cleanLinks(outcomes) })} disabled={!ok} style={{ flex: 2 }}>Submit Completion</Btn>
+        </div>
+      </Card>
+    </Overlay>
+  );
+}
+
+// ── ASSIGN TRAINING MODAL ─────────────────────────────────────────────────────
+function AssignModal({ users, catalog, currentFY, onSubmit, onAddToCatalog, onClose, currentUser }) {
+  const [userId, setUserId] = useState("");
+  const [title, setTitle] = useState("");
+  const [custom, setCustom] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [resources, setResources] = useState([{ url: "", title: "" }]);
+  const isManager = currentUser?.role === "manager";
+  const menteeIds = currentUser?.menteeIds || [];
+  const members = users.filter(u => u.role === "member" && (!isManager || menteeIds.includes(u.id)));
+  const finalTitle = title === "__custom__" ? custom.trim() : title;
+  const ok = userId && finalTitle;
+
+  const submit = () => {
+    if (title === "__custom__" && finalTitle && !catalog.includes(finalTitle)) onAddToCatalog(finalTitle);
+    onSubmit({ userId, title: finalTitle, dueDate: dueDate || null, resources: cleanLinks(resources) });
+  };
+
+  return (
+    <Overlay onClose={onClose}>
+      <Card style={{ width: 470 }}>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>Assign Training</div>
+        <div style={{ marginBottom: 18 }}><FYBadge fy={currentFY} /></div>
+        <Field label="Team Member" required>
+          <Select value={userId} onChange={e => setUserId(e.target.value)}>
+            <option value="">Select member...</option>
+            {members.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </Select>
+        </Field>
+        <Field label="Training" required hint="Not in the list? Add it via 'Custom' — it will be saved to the Training Catalog for future use.">
+          <Select value={title} onChange={e => setTitle(e.target.value)} style={{ marginBottom: title === "__custom__" ? 8 : 0 }}>
+            <option value="">Select training...</option>
+            {catalog.map(t => <option key={t} value={t}>{t}</option>)}
+            <option value="__custom__">+ Custom (add new to catalog)</option>
+          </Select>
+          {title === "__custom__" && (
+            <Input value={custom} onChange={e => setCustom(e.target.value)} placeholder="Enter new training name..." />
+          )}
+        </Field>
+        <Field label="Due Date (optional)">
+          <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} min={today()} />
+          <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 5 }}>Overdue trainings get flagged automatically once this date passes.</div>
+        </Field>
+        <Field label="Reference Material for Member (optional)" hint="e.g. Udemy course link, internal doc, video — shown to the member while they work on this training. Add as many as needed.">
+          <LinkListEditor links={resources} setLinks={setResources} urlPlaceholder="https://..." titlePlaceholder="Link title" addLabel="Add another resource" />
+        </Field>
+        <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+          <Btn variant="ghost" onClick={onClose} style={{ flex: 1 }}>Cancel</Btn>
+          <Btn onClick={submit} disabled={!ok} style={{ flex: 2 }}>Assign Training</Btn>
+        </div>
+      </Card>
+    </Overlay>
+  );
+}
+
+// ── TRAINING CATALOG ──────────────────────────────────────────────────────────
+function CatalogManager({ catalog, trainings, onSave }) {
+  const [local, setLocal] = useState([...catalog]);
+  const [newItem, setNewItem] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  const add = () => {
+    const v = newItem.trim();
+    if (!v || local.includes(v)) return;
+    setLocal(prev => [...prev, v]); setNewItem("");
+  };
+  const remove = (item) => {
+    if (usageCount(item) > 0) return;
+    setLocal(prev => prev.filter(x => x !== item));
+  };
+  const save = async () => { await onSave(local); setSaved(true); setTimeout(() => setSaved(false), 2500); };
+
+  const usageCount = (item) => trainings.filter(t => t.title === item && t.status !== "discarded").length;
+
+  return (
+    <div>
+      <div style={{ marginBottom: 22 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#0f172a", margin: "0 0 4px" }}>Training Catalog</h1>
+        <div style={{ fontSize: 14, color: "#64748b" }}>Master list of all training programs — these appear in the "Assign Training" dropdown</div>
+      </div>
+
+      <div style={{ background: "white", border: "1px solid #e9eef5", borderRadius: 13, padding: 22, marginBottom: 18 }}>
+        <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
+          <Input value={newItem} onChange={e => setNewItem(e.target.value)} onKeyDown={e => e.key === "Enter" && add()} placeholder="Add a new training program name..." />
+          <Btn onClick={add} disabled={!newItem.trim()} style={{ flexShrink: 0 }}>+ Add</Btn>
+        </div>
+        {local.length === 0 ? (
+          <div style={{ textAlign: "center", padding: 30, color: "#94a3b8", fontSize: 13 }}>Catalog is empty. Add training programs above.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {local.map(item => {
+              const count = usageCount(item);
+              const locked = count > 0;
+              return (
+                <div key={item} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "#f8fafc", borderRadius: 9 }}>
+                  <span style={{ flex: 1, fontSize: 14, color: "#374151" }}>{item}</span>
+                  <span style={{ fontSize: 11, color: locked ? "#2563eb" : "#94a3b8", fontWeight: locked ? 600 : 400 }}>{count} assigned</span>
+                  <button onClick={() => remove(item)} disabled={locked}
+                    title={locked ? "Cannot delete — this training is currently assigned to one or more members" : "Delete from catalog"}
+                    style={{ background: "none", border: "none", cursor: locked ? "not-allowed" : "pointer", fontSize: 15, color: locked ? "#e2e8f0" : "#fca5a5" }}>✕</button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 12 }}>🔒 Trainings already assigned to a team member cannot be deleted — only items with "0 assigned" can be removed.</div>
+        <Btn onClick={save} style={{ marginTop: 12 }}>{saved ? "✅ Saved!" : "Save Catalog"}</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ── REMINDERS ─────────────────────────────────────────────────────────────────
+function Reminders({ users, trainings, settings, onSaveSettings, onMarkReminded, currentUser }) {
+  const [pendingDays, setPendingDays] = useState(settings.pendingReminderDays);
+  const [overdueDays, setOverdueDays] = useState(settings.overdueReminderDays);
+  const [savedSettings, setSavedSettings] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const isManager = currentUser?.role === "manager";
+  const menteeIds = currentUser?.menteeIds || [];
+
+  const saveSettings = async () => {
+    await onSaveSettings({ ...settings, pendingReminderDays: Number(pendingDays) || 1, overdueReminderDays: Number(overdueDays) || 1 });
+    setSavedSettings(true); setTimeout(() => setSavedSettings(false), 2500);
+  };
+
+  const myTrainings = trainings.filter(t => !isManager || menteeIds.includes(t.userId));
+  const allPending = myTrainings.filter(t => t.status === "pending");
+  const dueForReminder = allPending.filter(t => {
+    const overdue = isOverdue(t.dueDate);
+    const threshold = overdue ? Number(settings.overdueReminderDays) || 3 : Number(settings.pendingReminderDays) || 7;
+    const sinceBase = t.lastReminderSent || (overdue ? t.dueDate : t.assignedDate);
+    return daysSince(sinceBase) >= threshold;
+  });
+
+  const buildBody = (list) => "Hi team,\n\nThis is a reminder about your pending training(s):\n\n" +
+    Object.values(list.reduce((acc, t) => {
+      const u = users.find(x => x.id === t.userId);
+      if (!u) return acc;
+      acc[u.id] = acc[u.id] || { user: u, items: [] };
+      acc[u.id].items.push(t);
+      return acc;
+    }, {})).map(({ user, items }) =>
+      `${user.name}:\n${items.map(t => `  • ${t.title}${t.dueDate ? ` — Due: ${fmtDate(t.dueDate)}${isOverdue(t.dueDate) ? " (OVERDUE)" : ""}` : ""}`).join("\n")}`
+    ).join("\n\n") +
+    "\n\nPlease complete these at the earliest and log your learnings on the Knowledge Hub.\n\nThanks,\nManagement";
+
+  const sendGroup = (list) => {
+    const emails = [...new Set(list.map(t => users.find(u => u.id === t.userId)?.email).filter(Boolean))].join(",");
+    const body = buildBody(list);
+    const mailto = `mailto:${emails}?subject=${encodeURIComponent("Training Reminder — Action Required")}&body=${encodeURIComponent(body)}`;
+    window.open(mailto, "_self");
+    onMarkReminded(list.map(t => t.id));
+  };
+
+  const copyGroup = (list) => { navigator.clipboard.writeText(buildBody(list)); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+
+  return (
+    <div>
+      <div style={{ marginBottom: 22 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#0f172a", margin: "0 0 4px" }}>Reminders</h1>
+        <div style={{ fontSize: 14, color: "#64748b" }}>Configure reminder frequency & send nudges</div>
+      </div>
+
+      <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 12, padding: "14px 18px", marginBottom: 20, fontSize: 13, color: "#9a3412", lineHeight: 1.7 }}>
+        ⚠️ <strong>How this works:</strong> This app cannot send fully-automatic background emails — there is no server or scheduler behind it. Instead, every time a supervisor opens this page, it automatically shows who is <strong>"due for a reminder"</strong> based on the settings below. One click opens a pre-filled email for everyone overdue — just hit Send in your mail app.
+      </div>
+
+      <div style={{ background: "white", border: "1px solid #e9eef5", borderRadius: 13, padding: 22, marginBottom: 20 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "#374151", marginBottom: 16 }}>Reminder Frequency</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <Field label="Remind for pending trainings every (days)" hint="Used while a training is not yet overdue.">
+            <Input type="number" min={1} value={pendingDays} onChange={e => setPendingDays(e.target.value)} />
+          </Field>
+          <Field label="Remind for overdue trainings every (days)" hint="More frequent nudges once the due date is crossed.">
+            <Input type="number" min={1} value={overdueDays} onChange={e => setOverdueDays(e.target.value)} />
+          </Field>
+        </div>
+        <Btn onClick={saveSettings}>{savedSettings ? "✅ Saved!" : "Save Settings"}</Btn>
+      </div>
+
+      <div style={{ background: dueForReminder.length ? "#fff5f5" : "#f0fdf4", border: `1px solid ${dueForReminder.length ? "#fecaca" : "#86efac"}`, borderRadius: 13, padding: 20, marginBottom: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: dueForReminder.length ? 14 : 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: dueForReminder.length ? "#dc2626" : "#15803d" }}>
+            {dueForReminder.length ? `🔔 ${dueForReminder.length} reminder(s) due now` : "🎉 No reminders due right now"}
+          </div>
+          {dueForReminder.length > 0 && (
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn variant="ghost" onClick={() => copyGroup(dueForReminder)} style={{ fontSize: 12, padding: "6px 12px" }}>{copied ? "Copied!" : "📋 Copy"}</Btn>
+              <Btn onClick={() => sendGroup(dueForReminder)} style={{ fontSize: 12, padding: "6px 14px" }}>📧 Send & Mark Reminded</Btn>
+            </div>
+          )}
+        </div>
+        {dueForReminder.map(t => {
+          const u = users.find(x => x.id === t.userId);
+          return (
+            <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "#374151", padding: "6px 0", borderTop: "1px solid #fee2e2" }}>
+              <Avatar name={u?.name || "?"} color={u?.color} size={22} />
+              <span style={{ fontWeight: 500 }}>{u?.name}</span>
+              <span style={{ color: "#94a3b8" }}>— {t.title}</span>
+              {t.dueDate && <Badge status="pending" dueDate={t.dueDate} />}
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ background: "white", border: "1px solid #e9eef5", borderRadius: 13, padding: 20 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "#374151", marginBottom: 14 }}>All Pending Trainings</div>
+        {allPending.length === 0 ? (
+          <div style={{ textAlign: "center", padding: 24, color: "#94a3b8", fontSize: 13 }}>Nothing pending — great job team! 🎉</div>
+        ) : allPending.map(t => {
+          const u = users.find(x => x.id === t.userId);
+          const overdue = isOverdue(t.dueDate);
+          const threshold = overdue ? settings.overdueReminderDays : settings.pendingReminderDays;
+          const sinceBase = t.lastReminderSent || (overdue ? t.dueDate : t.assignedDate);
+          const nextIn = Math.max(0, threshold - daysSince(sinceBase));
+          return (
+            <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, padding: "8px 0", borderBottom: "1px solid #f8fafc" }}>
+              <Avatar name={u?.name || "?"} color={u?.color} size={22} />
+              <span style={{ fontWeight: 500, color: "#374151" }}>{u?.name}</span>
+              <span style={{ color: "#94a3b8", flex: 1 }}>{t.title}</span>
+              <Badge status="pending" dueDate={t.dueDate} />
+              <span style={{ fontSize: 11.5, color: nextIn === 0 ? "#dc2626" : "#94a3b8", minWidth: 110, textAlign: "right" }}>
+                {nextIn === 0 ? "Reminder due" : `Next reminder in ${nextIn}d`}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── SETTINGS ──────────────────────────────────────────────────────────────────
+function Settings({ users, trainings, currentFY, onSaveUsers, onReset, onFinalizeYear }) {
+  const [local, setLocal] = useState(users.map(u => ({ ...u })));
+  const [saved, setSaved] = useState(false);
+  const [addForm, setAddForm] = useState(false);
+  const [newUser, setNewUser] = useState({ name: "", email: "", role: "member", loginId: "", color: COLORS[Math.floor(Math.random() * COLORS.length)] });
+  const [carryChoices, setCarryChoices] = useState({});
+
+  const change = (id, field, val) => setLocal(prev => prev.map(u => u.id === id ? { ...u, [field]: val } : u));
+  const remove = (id) => setLocal(prev => prev.filter(u => u.id !== id));
+  const resetPin = (id) => setLocal(prev => prev.map(u => u.id === id ? { ...u, pin: "", pinSet: false } : u));
+  const save = async () => { await onSaveUsers(local); setSaved(true); setTimeout(() => setSaved(false), 2500); };
+
+  const handleRoleChange = (newRole) => {
+    setNewUser(p => {
+      const prefix = newRole === "hr" ? "HR" : newRole === "manager" ? "MGR" : "EMP";
+      const randomNum = Math.floor(100 + Math.random() * 900);
+      return { ...p, role: newRole, loginId: `${prefix}${randomNum}` };
+    });
+  };
+
+  const toggleAddForm = () => {
+    const isOpening = !addForm;
+    setAddForm(isOpening);
+    if (isOpening) {
+      const randomNum = Math.floor(100 + Math.random() * 900);
+      setNewUser({
+        name: "",
+        email: "",
+        role: "member",
+        loginId: `EMP${randomNum}`,
+        color: COLORS[Math.floor(Math.random() * COLORS.length)]
+      });
+    }
+  };
+
+  const addMember = () => {
+    if (!newUser.name.trim() || !newUser.email.trim() || !newUser.loginId.trim()) return;
+    const cleanId = newUser.loginId.trim();
+    if (local.some(u => u.loginId?.toLowerCase() === cleanId.toLowerCase())) {
+      alert(`Login ID "${cleanId}" is already taken. Please use a unique one.`);
+      return;
+    }
+    const u = {
+      id: `u${Date.now()}`,
+      loginId: cleanId,
+      name: newUser.name.trim(),
+      email: newUser.email.trim(),
+      pin: "",
+      pinSet: false,
+      role: newUser.role,
+      color: newUser.color,
+      menteeIds: []
+    };
+    setLocal(prev => [...prev, u]);
+    setAddForm(false);
+  };
+
+  const yearEndPending = trainings.filter(t => t.fy === currentFY && t.status === "pending");
+  const setChoice = (id, val) => setCarryChoices(prev => ({ ...prev, [id]: val }));
+  const finalize = () => {
+    const decisions = yearEndPending.map(t => ({ id: t.id, action: carryChoices[t.id] || "carry" }));
+    if (!window.confirm(`Finalize FY ${currentFY} and move to FY ${nextFY(currentFY)}? This will process ${decisions.length} pending training(s) and cannot be undone.`)) return;
+    onFinalizeYear(decisions);
+  };
+
+  return (
+    <div>
+      <div style={{ marginBottom: 22 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#0f172a", margin: "0 0 4px" }}>Settings</h1>
+        <div style={{ fontSize: 14, color: "#64748b" }}>Manage team members, logins, financial year & sharing</div>
+      </div>
+
+      <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 13, padding: 20, marginBottom: 20 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#1d4ed8", marginBottom: 8 }}>🔗 How to Share with Your Team</div>
+        <ol style={{ fontSize: 13, color: "#1e40af", lineHeight: 2, paddingLeft: 18, margin: 0 }}>
+          <li>Click the <strong>Share</strong> button on this artifact (top-right corner on Claude.ai)</li>
+          <li>Send the link to your team members via email or chat</li>
+          <li>Each member needs a <strong>free Claude account</strong> to open the link</li>
+          <li>On first login, each member verifies their <strong>registered email</strong> and sets up their own personal PIN — only they will know it</li>
+        </ol>
+      </div>
+
+      <div style={{ background: "white", border: "1px solid #e9eef5", borderRadius: 13, padding: 24, marginBottom: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: "#374151" }}>Team Members</div>
+          <Btn onClick={toggleAddForm} style={{ fontSize: 12, padding: "5px 12px" }}>{addForm ? "Cancel" : "+ Add Member"}</Btn>
+        </div>
+
+        {addForm && (
+          <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: 16, marginBottom: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 12 }}>New Team Member</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
+              <Input value={newUser.name} onChange={e => setNewUser(p => ({ ...p, name: e.target.value }))} placeholder="Full name *" />
+              <Input value={newUser.email} onChange={e => setNewUser(p => ({ ...p, email: e.target.value }))} placeholder="Email address * (for verification)" type="email" />
+              <Input value={newUser.loginId} onChange={e => setNewUser(p => ({ ...p, loginId: e.target.value }))} placeholder="Login ID *" />
+            </div>
+            
+            <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 12 }}>
+              <div style={{ flex: 1 }}>
+                <Label required>Role</Label>
+                <Select value={newUser.role} onChange={e => handleRoleChange(e.target.value)}>
+                  <option value="member">Employee (Member)</option>
+                  <option value="manager">Manager</option>
+                  <option value="hr">HR</option>
+                </Select>
+              </div>
+              
+              <div style={{ flex: 1 }}>
+                <Label>Color Avatar</Label>
+                <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                  {COLORS.map(c => (
+                    <div key={c} onClick={() => setNewUser(p => ({ ...p, color: c }))} style={{ width: 20, height: 20, borderRadius: "50%", background: c, cursor: "pointer", border: newUser.color === c ? "3px solid #0f172a" : "2px solid transparent" }} />
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 12 }}>
+              Share the Login ID with the user. They will verify their email and set up their PIN on first login.
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn variant="ghost" onClick={() => setAddForm(false)} style={{ fontSize: 12, padding: "6px 14px" }}>Cancel</Btn>
+              <Btn onClick={addMember} disabled={!newUser.name.trim() || !newUser.email.trim() || !newUser.loginId.trim()} style={{ fontSize: 12, padding: "6px 14px" }}>Add Member</Btn>
+            </div>
+          </div>
+        )}
+
+        {local.map(u => {
+          const isMainAdmin = u.id === "hr0";
+          return (
+            <div key={u.id} style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 12 }}>
+              <div onClick={() => { const nc = COLORS[(COLORS.indexOf(u.color) + 1) % COLORS.length]; change(u.id, "color", nc); }} style={{ cursor: "pointer" }}>
+                <Avatar name={u.name} color={u.color} size={32} />
+              </div>
+              <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1.2fr 1.5fr 1fr", gap: 7 }}>
+                <Input value={u.name} onChange={e => change(u.id, "name", e.target.value)} placeholder="Name" />
+                <Input value={u.email} onChange={e => change(u.id, "email", e.target.value)} placeholder="Email" type="email" />
+                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                  <Input value={u.loginId || ""} onChange={e => change(u.id, "loginId", e.target.value)} placeholder="Login ID" />
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(u.loginId || "");
+                      alert(`Copied Login ID "${u.loginId}" to clipboard!`);
+                    }}
+                    title="Copy Login ID"
+                    style={{ background: "#f1f5f9", border: "none", borderRadius: 6, padding: "6px 8px", cursor: "pointer", fontSize: 12 }}
+                  >
+                    📋
+                  </button>
+                </div>
+              </div>
+              
+              <Select
+                value={u.role}
+                onChange={e => change(u.id, "role", e.target.value)}
+                disabled={isMainAdmin}
+                style={{ width: 110, padding: "8px 10px", fontSize: 13 }}
+              >
+                <option value="member">Employee</option>
+                <option value="manager">Manager</option>
+                <option value="hr">HR</option>
+              </Select>
+
+              <span style={{ fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 8, background: u.pinSet ? "#dcfce7" : "#fef9c3", color: u.pinSet ? "#15803d" : "#92400e", minWidth: 92, textAlign: "center" }}>
+                {u.pinSet ? "🔒 PIN set" : "⏳ Not set up"}
+              </span>
+              
+              {u.pinSet && !isMainAdmin && (
+                <Btn variant="ghost" onClick={() => resetPin(u.id)} style={{ fontSize: 11.5, padding: "6px 10px" }} title="Re-verify email & set a new PIN">Reset PIN</Btn>
+              )}
+              
+              {!isMainAdmin && (
+                <button onClick={() => remove(u.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#fca5a5", padding: "4px", flexShrink: 0 }}>✕</button>
+              )}
+            </div>
+          );
+        })}
+        <Btn onClick={save} style={{ marginTop: 10 }}>{saved ? "✅ Saved!" : "Save Changes"}</Btn>
+      </div>
+
+      <div style={{ background: "white", border: "1px solid #e9eef5", borderRadius: 13, padding: 24, marginBottom: 18 }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: "#374151", marginBottom: 4 }}>Year-End Tools</div>
+        <div style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>
+          Current FY: <FYBadge fy={currentFY} /> — when the year ends, decide what happens to leftover pending trainings before moving to FY {nextFY(currentFY)}.
+        </div>
+        {yearEndPending.length === 0 ? (
+          <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 10, padding: 16, fontSize: 13, color: "#15803d", marginBottom: 14 }}>
+            🎉 No pending trainings in FY {currentFY}. You can finalize the year anytime.
+          </div>
+        ) : (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12.5, color: "#94a3b8", marginBottom: 10 }}>{yearEndPending.length} pending training(s) — choose what to do with each:</div>
+            {yearEndPending.map(t => {
+              const u = users.find(x => x.id === t.userId);
+              const choice = carryChoices[t.id] || "carry";
+              return (
+                <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #f8fafc", fontSize: 13 }}>
+                  <Avatar name={u?.name || "?"} color={u?.color} size={22} />
+                  <span style={{ flex: 1, color: "#374151" }}>{u?.name} — {t.title}</span>
+                  <select value={choice} onChange={e => setChoice(t.id, e.target.value)} style={{ padding: "5px 10px", borderRadius: 7, border: "1.5px solid #e2e8f0", fontSize: 12.5, cursor: "pointer" }}>
+                    <option value="carry">↪ Carry to FY {nextFY(currentFY)}</option>
+                    <option value="discard">🗑 Discard</option>
+                  </select>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <Btn onClick={finalize} variant="success">Finalize FY {currentFY} → Start FY {nextFY(currentFY)}</Btn>
+      </div>
+
+      <div style={{ background: "#fff5f5", border: "1px solid #fecaca", borderRadius: 13, padding: 20 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "#991b1b", marginBottom: 6 }}>⚠ Danger Zone</div>
+        <div style={{ fontSize: 13, color: "#7f1d1d", marginBottom: 14 }}>
+          Permanently deletes all data (users, trainings, catalog, settings) and resets to a <strong>completely fresh, empty state</strong>. <strong>Cannot be undone</strong> and affects all users.
+        </div>
+        <Btn variant="danger" onClick={onReset} style={{ fontSize: 13 }}>🗑 Reset All Data (Fresh Start)</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ── MENTEES MANAGER ──────────────────────────────────────────────────────────
+function MenteesManager({ users, currentUser, onUpdateUser }) {
+  const members = users.filter(u => u.role === "member");
+  const menteeIds = currentUser.menteeIds || [];
+
+  const toggleMentee = async (memberId) => {
+    let updatedMentees;
+    if (menteeIds.includes(memberId)) {
+      updatedMentees = menteeIds.filter(id => id !== memberId);
+    } else {
+      updatedMentees = [...menteeIds, memberId];
+    }
+    const updatedUser = { ...currentUser, menteeIds: updatedMentees };
+    await onUpdateUser(updatedUser);
+  };
+
+  return (
+    <div>
+      <div style={{ marginBottom: 22 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#0f172a", margin: "0 0 4px" }}>My Mentees</h1>
+        <div style={{ fontSize: 14, color: "#64748b" }}>Select the employees you are mentoring to assign them tasks and track their progress.</div>
+      </div>
+
+      <div style={{ background: "white", border: "1px solid #e9eef5", borderRadius: 13, padding: 24 }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: "#374151", marginBottom: 16 }}>All Employees</div>
+        {members.length === 0 ? (
+          <div style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 14 }}>
+            No employees found in the system. Ask HR to add team members.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {members.map(m => {
+              const isSelected = menteeIds.includes(m.id);
+              return (
+                <div
+                  key={m.id}
+                  onClick={() => toggleMentee(m.id)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    padding: "12px 16px",
+                    background: isSelected ? "#eff6ff" : "#f8fafc",
+                    border: "1.5px solid",
+                    borderColor: isSelected ? "#bfdbfe" : "#e2e8f0",
+                    borderRadius: 10,
+                    cursor: "pointer",
+                    transition: "all 0.15s"
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => {}} // toggled by outer click
+                    style={{ cursor: "pointer", width: 18, height: 18 }}
+                  />
+                  <Avatar name={m.name} color={m.color} size={32} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>{m.name}</div>
+                    <div style={{ fontSize: 12, color: "#64748b" }}>{m.email} · ID: {m.loginId || m.id}</div>
+                  </div>
+                  {isSelected && (
+                    <span style={{ background: "#dcfce7", color: "#15803d", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20 }}>
+                      ✓ Mentee
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── ROOT ──────────────────────────────────────────────────────────────────────
+const DEFAULT_SETTINGS = { pendingReminderDays: 7, overdueReminderDays: 3 };
+
+export default function App() {
+  const [users, setUsers] = useState([]);
+  const [trainings, setTrainings] = useState([]);
+  const [catalog, setCatalog] = useState([]);
+  const [appSettings, setAppSettings] = useState(DEFAULT_SETTINGS);
+  const [currentFY, setCurrentFY] = useState(getFY());
+  const [currentUser, setCurrent] = useState(null);
+  const [tab, setTab] = useState("dashboard");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [completeModal, setComplete] = useState(null);
+  const [addModal, setAdd] = useState(false);
+  const [detailModal, setDetail] = useState(null);
+  const [fyFilterDash, setFyFilterDash] = useState(getFY());
+  const [fyFilterMine, setFyFilterMine] = useState(getFY());
+
+  useEffect(() => {
+    (async () => {
+      let u = await S.get("tms:users");
+      let t = await S.get("tms:trainings");
+      let c = await S.get("tms:catalog");
+      let st = await S.get("tms:settings");
+      if (!u) {
+        u = [DEFAULT_HR];
+        await S.set("tms:users", u);
+      } else {
+        let changed = false;
+        u = u.map((usr, index) => {
+          let updated = { ...usr };
+          if (!updated.loginId) {
+            changed = true;
+            if (updated.role === "supervisor" || updated.id === "u0") {
+              updated.loginId = "HR001";
+              updated.role = "hr";
+            } else {
+              updated.loginId = `EMP${String(index + 100).slice(-3)}`;
+            }
+          }
+          if (updated.role === "supervisor") {
+            changed = true;
+            updated.role = "hr";
+          }
+          return updated;
+        });
+        if (changed) {
+          await S.set("tms:users", u);
+        }
+      }
+      if (!t) { t = []; await S.set("tms:trainings", t); }
+      if (!c) { c = [...DEFAULT_CATALOG]; await S.set("tms:catalog", c); }
+      if (!st) { st = { ...DEFAULT_SETTINGS, currentFY: getFY() }; await S.set("tms:settings", st); }
+      setUsers(u); setTrainings(t); setCatalog(c);
+      setAppSettings({ pendingReminderDays: st.pendingReminderDays ?? 7, overdueReminderDays: st.overdueReminderDays ?? 3 });
+      const fy = st.currentFY || getFY();
+      setCurrentFY(fy); setFyFilterDash(fy); setFyFilterMine(fy);
+      setLoading(false);
+    })();
+  }, []);
+
+  const saveT = async t => { setTrainings(t); await S.set("tms:trainings", t); };
+  const saveU = async u => { setUsers(u); await S.set("tms:users", u); };
+  const saveC = async c => { setCatalog(c); await S.set("tms:catalog", c); };
+  const saveSettings = async s => {
+    setAppSettings({ pendingReminderDays: s.pendingReminderDays, overdueReminderDays: s.overdueReminderDays });
+    await S.set("tms:settings", { ...s, currentFY });
+  };
+
+  const refresh = async () => {
+    setRefreshing(true);
+    const u = await S.get("tms:users"); const t = await S.get("tms:trainings"); const c = await S.get("tms:catalog");
+    if (u) setUsers(u); if (t) setTrainings(t); if (c) setCatalog(c);
+    setRefreshing(false);
+  };
+
+  const login = u => { setCurrent(u); setTab((u.role === "hr" || u.role === "manager") ? "dashboard" : "my-trainings"); };
+  const logout = () => setCurrent(null);
+
+  const updateUser = async (updatedUser) => {
+    const updated = users.map(u => u.id === updatedUser.id ? updatedUser : u);
+    await saveU(updated);
+    if (currentUser && currentUser.id === updatedUser.id) {
+      setCurrent(updatedUser);
+    }
+  };
+
+  const markComplete = async (id, data) => {
+    const updated = trainings.map(t => t.id === id ? { ...t, status: "completed", completedDate: today(), ...data } : t);
+    await saveT(updated); setComplete(null);
+  };
+
+  const addTraining = async ({ userId, title, dueDate, resources }) => {
+    const t = {
+      id: `t${Date.now()}`, userId, title, fy: currentFY, assignedDate: today(), dueDate: dueDate || null,
+      status: "pending", completedDate: null, notes: null, resources: resources || [], outcomes: [], lastReminderSent: null
+    };
+    await saveT([...trainings, t]); setAdd(false);
+  };
+
+  const addToCatalog = async (item) => { if (!catalog.includes(item)) await saveC([...catalog, item]); };
+
+  const markReminded = async (ids) => {
+    const updated = trainings.map(t => ids.includes(t.id) ? { ...t, lastReminderSent: today() } : t);
+    await saveT(updated);
+  };
+
+  const finalizeYear = async (decisions) => {
+    const nfy = nextFY(currentFY);
+    let updated = [...trainings];
+    decisions.forEach(({ id, action }) => {
+      const idx = updated.findIndex(t => t.id === id);
+      if (idx === -1) return;
+      const orig = updated[idx];
+      if (action === "carry") {
+        updated[idx] = { ...orig, status: "discarded" };
+        updated.push({
+          ...orig, id: `t${Date.now()}_${idx}`, fy: nfy, status: "pending", dueDate: null,
+          assignedDate: today(), lastReminderSent: null, carriedFromFy: currentFY, notes: null, outcomes: [], completedDate: null
+        });
+      } else {
+        updated[idx] = { ...orig, status: "discarded" };
+      }
+    });
+    await saveT(updated);
+    setCurrentFY(nfy); setFyFilterDash(nfy); setFyFilterMine(nfy);
+    await S.set("tms:settings", { ...appSettings, currentFY: nfy });
+  };
+
+  const resetData = async () => {
+    if (!window.confirm("This will DELETE everything (users, trainings, catalog, settings) and reset to a fresh empty state. Are you sure?")) return;
+    const freshUsers = [DEFAULT_HR]; const freshTrainings = []; const freshCatalog = [...DEFAULT_CATALOG];
+    const freshSettings = { ...DEFAULT_SETTINGS, currentFY: getFY() };
+    await S.set("tms:users", freshUsers); await S.set("tms:trainings", freshTrainings);
+    await S.set("tms:catalog", freshCatalog); await S.set("tms:settings", freshSettings);
+    setUsers(freshUsers); setTrainings(freshTrainings); setCatalog(freshCatalog);
+    setAppSettings(DEFAULT_SETTINGS); setCurrentFY(freshSettings.currentFY);
+    setFyFilterDash(freshSettings.currentFY); setFyFilterMine(freshSettings.currentFY);
+    setCurrent(null);
+  };
+
+  if (loading) return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "#f1f5f9", fontFamily: "system-ui" }}>
+      <div style={{ color: "#64748b", fontSize: 15 }}>Loading…</div>
+    </div>
+  );
+
+  if (!currentUser) return <LoginScreen users={users} onLogin={login} onUpdateUser={updateUser} />;
+
+  const myTrainings = trainings.filter(t => t.userId === currentUser.id);
+  const myActiveCurrentFY = myTrainings.filter(t => t.fy === currentFY && t.status !== "discarded");
+  const myDone = myActiveCurrentFY.filter(t => t.status === "completed").length;
+
+  const allFYs = [...new Set([currentFY, ...trainings.map(t => t.fy)])].filter(Boolean).sort().reverse();
+
+  return (
+    <div style={{ display: "flex", height: "100vh", background: "#f8fafc", fontFamily: "system-ui,-apple-system,sans-serif", overflow: "hidden" }}>
+      <Sidebar user={currentUser} tab={tab} setTab={setTab} onLogout={logout}
+        myDone={myDone} myTotal={myActiveCurrentFY.length} trainings={trainings} currentFY={currentFY} />
+
+      <div style={{ flex: 1, overflow: "auto", padding: "30px 34px" }}>
+        {tab === "dashboard" && (currentUser.role === "hr" || currentUser.role === "manager") &&
+          <Dashboard users={users} trainings={trainings} onAdd={() => setAdd(true)} setTab={setTab} onRefresh={refresh} refreshing={refreshing}
+            fyList={allFYs} fyFilter={fyFilterDash} setFyFilter={setFyFilterDash} currentUser={currentUser} />}
+        {tab === "mentees" && currentUser.role === "manager" &&
+          <MenteesManager users={users} currentUser={currentUser} onUpdateUser={updateUser} />}
+        {tab === "my-trainings" && <MyTrainings trainings={myTrainings} onComplete={setComplete} onDetail={setDetail}
+          fyList={allFYs} fyFilter={fyFilterMine} setFyFilter={setFyFilterMine} />}
+        {tab === "knowledge-hub" && <KnowledgeHub trainings={trainings} users={users} onDetail={setDetail} />}
+        {tab === "catalog" && currentUser.role === "manager" && <CatalogManager catalog={catalog} trainings={trainings} onSave={saveC} />}
+        {tab === "reminders" && currentUser.role === "manager" &&
+          <Reminders users={users} trainings={trainings} settings={appSettings} onSaveSettings={saveSettings} onMarkReminded={markReminded} currentUser={currentUser} />}
+        {tab === "settings" && currentUser.role === "hr" &&
+          <Settings users={users} trainings={trainings} currentFY={currentFY} onSaveUsers={saveU} onReset={resetData} onFinalizeYear={finalizeYear} />}
+      </div>
+
+      {detailModal && <DetailModal training={detailModal} users={users} onClose={() => setDetail(null)} />}
+      {completeModal && <CompleteModal training={completeModal} onSubmit={markComplete} onClose={() => setComplete(null)} />}
+      {addModal && <AssignModal users={users} catalog={catalog} currentFY={currentFY} onSubmit={addTraining} onAddToCatalog={addToCatalog} onClose={() => setAdd(false)} currentUser={currentUser} />}
+    </div>
+  );
+}
