@@ -211,6 +211,16 @@ export async function listRequestsFor(trainingIds) {
   return data;
 }
 
+// Admin/HR: every request in the org (RLS grants admins read access).
+export async function listAllRequests() {
+  const { data, error } = await supabase
+    .from("completion_requests")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data;
+}
+
 // ── Settings (one row per manager; RLS restricts to your own) ─────────────────
 export async function getSettings() {
   const { data: { user } } = await supabase.auth.getUser();

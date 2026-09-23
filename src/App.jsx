@@ -371,6 +371,7 @@ function Sidebar({ profile, tab, setTab, onLogout, myDone, myTotal, trainings, c
   const isAdmin = profile.role === "admin";
   const overdue = trainings.filter(t => isOpenStatus(getEffStatus(t)) && isOverdue(t.due_date)).length;
   const nav = isAdmin ? [
+    { id: "overview", icon: LayoutDashboard, label: "Overview" },
     { id: "users", icon: UserCog, label: "Users" },
     { id: "catalog", icon: FolderOpen, label: "Training Catalog" },
   ] : isManager ? [
@@ -699,8 +700,10 @@ function MemberTrainingsModal({ member, onClose, fyFilter, trainings, onDetail }
   if (!member) return null;
   const groups = [
     ["Overdue", trainings.filter(t => isOpenStatus(getEffStatus(t)) && isOverdue(t.due_date))],
+    ["Awaiting Approval", trainings.filter(t => getEffStatus(t) === "submitted")],
+    ["Sent Back", trainings.filter(t => getEffStatus(t) === "sent_back" && !isOverdue(t.due_date))],
     ["In Progress", trainings.filter(t => getEffStatus(t) === "in_progress" && !isOverdue(t.due_date))],
-    ["Pending", trainings.filter(t => getEffStatus(t) === "pending" && !isOverdue(t.due_date))],
+    ["Not Started", trainings.filter(t => getEffStatus(t) === "pending" && !isOverdue(t.due_date))],
     ["Completed", trainings.filter(t => getEffStatus(t) === "approved")],
   ].filter(([, arr]) => arr.length);
   return (
@@ -1098,6 +1101,7 @@ function DetailModal({ training, part: focusPart, reportees, requests, onClose, 
             {isM && <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-2 py-0.5 rounded-full normal-case tracking-normal">{training.training_parts.length} Parts</span>}
           </div>
           <DialogTitle className="text-lg leading-snug">{training.name}</DialogTitle>
+          {training.description && <DialogDescription className="whitespace-pre-wrap">{training.description}</DialogDescription>}
         </DialogHeader>
 
         <div className="flex items-center gap-3 p-3.5 bg-muted/50 rounded-xl border">
@@ -1306,24 +1310,25 @@ function ApprovalsPanel({ approvals, onApprove, onSendBack, onRefresh, refreshin
 // Fields the pilot feedback requires on every training: name, category, link,
 // mode (+ trainer for face-to-face), priority — plus optional extras.
 const emptyTrainingForm = () => ({
-  name: "", category_id: "", training_link: "", mode: "online", trainer: "", priority: "medium",
+  name: "", description: "", category_id: "", training_link: "", mode: "online", trainer: "", priority: "medium",
   resources: [{ url: "", title: "" }], parts: [],
 });
 const formFromTemplate = t => ({
-  name: t.name || "", category_id: t.category_id || "", training_link: t.training_link || "",
+  name: t.name || "", description: t.description || "", category_id: t.category_id || "", training_link: t.training_link || "",
   mode: t.mode || "online", trainer: t.trainer || "", priority: t.priority || "medium",
   resources: cleanLinks(t.resources).length ? cleanLinks(t.resources) : [{ url: "", title: "" }],
   parts: (t.parts || []).map(p => ({ id: uid("p"), title: p.title || "", part_link: p.part_link || "" })),
 });
-const trainingFormValid = f => f.name.trim() && f.category_id && f.training_link.trim() && (f.mode !== "face_to_face" || f.trainer.trim());
+// The material link is mandatory on an assigned training; catalog entries may leave it for later.
+const trainingFormValid = (f, linkRequired = true) => f.name.trim() && f.category_id && (!linkRequired || f.training_link.trim()) && (f.mode !== "face_to_face" || f.trainer.trim());
 const trainingFormPayload = f => ({
-  name: f.name.trim(), category_id: f.category_id, training_link: f.training_link.trim(),
+  name: f.name.trim(), description: f.description.trim() || null, category_id: f.category_id, training_link: f.training_link.trim() || null,
   mode: f.mode, trainer: f.mode === "face_to_face" ? f.trainer.trim() : null,
   priority: f.priority, resources: cleanLinks(f.resources),
 });
 const formParts = f => f.parts.filter(p => p.title.trim()).map(p => ({ title: p.title.trim(), part_link: p.part_link.trim() || null }));
 
-function TrainingFields({ form, setForm, categories, showParts = true, partsLocked }) {
+function TrainingFields({ form, setForm, categories, showParts = true, partsLocked, linkRequired = true }) {
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
   const addPart = () => set("parts", [...form.parts, { id: uid("p"), title: "", part_link: "" }]);
   const updPart = (id, f, v) => set("parts", form.parts.map(x => x.id === id ? { ...x, [f]: v } : x));
@@ -1335,13 +1340,17 @@ function TrainingFields({ form, setForm, categories, showParts = true, partsLock
         <Input value={form.name} onChange={e => set("name", e.target.value)} placeholder='e.g. "Advanced SQL for Analysts"' />
       </div>
       <div className="space-y-1.5">
+        <Label>Training Details (optional)</Label>
+        <Textarea value={form.description} onChange={e => set("description", e.target.value)} rows={2} placeholder="What this training covers" />
+      </div>
+      <div className="space-y-1.5">
         <Label>Training Category <span className="text-rose-500">*</span></Label>
         <CategorySelect categories={categories} value={form.category_id} onChange={v => set("category_id", v)} />
       </div>
       <div className="space-y-1.5">
-        <Label>Training Material Link <span className="text-rose-500">*</span></Label>
+        <Label>Training Material Link {linkRequired ? <span className="text-rose-500">*</span> : <span className="text-muted-foreground font-normal">(can be added later)</span>}</Label>
         <Input type="url" value={form.training_link} onChange={e => set("training_link", e.target.value)} placeholder="https://..." />
-        <p className="text-xs text-muted-foreground">Mandatory — the reportee needs this before requesting approval.</p>
+        <p className="text-xs text-muted-foreground">{linkRequired ? "Mandatory — the reportee needs this before requesting approval." : "Required when this training is assigned to someone."}</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1.5">
@@ -1516,6 +1525,7 @@ function AssignModal({ reportees, categories, catalog, currentFY, initialCatalog
 // ── BULK ASSIGN (many catalog trainings → many reportees) ─────────────────────
 function BulkAssignModal({ reportees, catalog, currentFY, initialIds, onSubmit, onClose, onGoToSettings }) {
   const [itemIds, setItemIds] = useState(initialIds || []);
+  const [links, setLinks] = useState({}); // catalog id → link, for selected items that have none yet
   const [memberIds, setMemberIds] = useState([]);
   const [expectedEnd, setExpectedEnd] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -1525,11 +1535,15 @@ function BulkAssignModal({ reportees, catalog, currentFY, initialIds, onSubmit, 
   const toggle = id => setItemIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
   const shown = catalog.filter(c => c.name.toLowerCase().includes(search.trim().toLowerCase()));
   const total = itemIds.length * memberIds.length;
-  const ok = itemIds.length > 0 && memberIds.length > 0 && expectedEnd;
+  const needLink = catalog.filter(c => itemIds.includes(c.id) && !c.training_link);
+  const ok = itemIds.length > 0 && memberIds.length > 0 && expectedEnd && needLink.every(c => (links[c.id] || "").trim());
 
   const submit = async () => {
     setBusy(true); setErr("");
-    try { await onSubmit({ items: catalog.filter(c => itemIds.includes(c.id)), memberIds, expectedEnd, dueDate: dueDate || null }); }
+    try {
+      const items = catalog.filter(c => itemIds.includes(c.id)).map(c => c.training_link ? c : { ...c, training_link: links[c.id].trim() });
+      await onSubmit({ items, memberIds, expectedEnd, dueDate: dueDate || null });
+    }
     catch (e) { setErr(e.message); }
     setBusy(false);
   };
@@ -1568,6 +1582,18 @@ function BulkAssignModal({ reportees, catalog, currentFY, initialIds, onSubmit, 
           )}
         </div>
 
+        {needLink.length > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-2">
+            <div className="text-[13px] font-semibold text-amber-800">Training material link needed <span className="text-rose-500">*</span></div>
+            <p className="text-xs text-amber-800">These catalog trainings don't have a link yet — it's mandatory before assigning. It will also be saved to the catalog.</p>
+            {needLink.map(c => (
+              <div key={c.id} className="flex items-center gap-2">
+                <span className="text-[12.5px] font-medium w-44 shrink-0 truncate" title={c.name}>{c.name}</span>
+                <Input type="url" value={links[c.id] || ""} onChange={e => setLinks(p => ({ ...p, [c.id]: e.target.value }))} placeholder="https://..." className="h-8" />
+              </div>
+            ))}
+          </div>
+        )}
         <DateFields expectedEnd={expectedEnd} setExpectedEnd={setExpectedEnd} dueDate={dueDate} setDueDate={setDueDate} />
         <ReporteePicker reportees={reportees} memberIds={memberIds} setMemberIds={setMemberIds} onGoToSettings={onGoToSettings} />
         {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
@@ -1632,86 +1658,224 @@ function CatalogItemModal({ item, categories, onSubmit, onClose }) {
           <DialogTitle>{item ? "Edit Catalog Training" : "Add Training to Catalog"}</DialogTitle>
           <DialogDescription>Catalog trainings can be assigned to reportees any time, singly or in bulk.</DialogDescription>
         </DialogHeader>
-        <TrainingFields form={form} setForm={setForm} categories={categories} />
+        <TrainingFields form={form} setForm={setForm} categories={categories} linkRequired={false} />
         {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
-          <Button className="flex-[2]" disabled={!trainingFormValid(form) || busy} onClick={submit}>{busy ? "Saving…" : item ? "Save changes" : "Add to catalog"}</Button>
+          <Button className="flex-[2]" disabled={!trainingFormValid(form, false) || busy} onClick={submit}>{busy ? "Saving…" : item ? "Save changes" : "Add to catalog"}</Button>
         </DialogFooter>
       </ModalContent>
     </Dialog>
   );
 }
 
-// Excel columns for bulk import (template download uses the same headers).
-const IMPORT_COLUMNS = ["Training Name", "Category Group", "Category", "Training Link", "Mode", "Trainer", "Priority", "Parts (separate with ;)"];
+// ── Bulk import from o2h's company training sheets ────────────────────────────
+// Recognised automatically (any tab of an .xlsx/.csv):
+//  • New Joiner 6 Months Training Plan — "Training Topic | Training details |
+//    Module | Trainer | Method | Status…", grouped under section rows
+//    (Human Resource, BA, Quality Assurance, Information Technology).
+//  • TNI plan — "Trainings | Method | Source/Trainer | Duration | Priority |
+//    Detail/Comment…", grouped under the o2h taxonomy (A Business › 1 Finance…).
+//  • Any simple sheet with a "Training Name" column.
+// Per-person columns (Status, Completion Date, Learnings, signatures) are
+// ignored — the catalog holds reusable trainings, not someone's progress.
+const norm = s => String(s ?? "").toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9+]+/g, " ").trim();
+const URL_RE = /https?:\/\/[^\s"'<>]+/i;
 
-function parseImportRows(rows, categories, existingNames) {
-  const modeOf = v => { const s = String(v || "online").trim().toLowerCase().replace(/[\s-]+/g, "_"); return { f2f: "face_to_face", face_to_face: "face_to_face", facetoface: "face_to_face", online: "online", self_paced: "self_paced", selfpaced: "self_paced", blended: "blended" }[s]; };
-  const seen = new Set(existingNames.map(n => n.toLowerCase()));
-  return rows.map((r, i) => {
-    const get = k => String(r[k] ?? "").trim();
-    const name = get("Training Name");
-    const group = get("Category Group"), catName = get("Category");
-    const cat = categories.find(c => c.name.toLowerCase() === catName.toLowerCase() && (!group || c.group_name.toLowerCase() === group.toLowerCase()));
-    const mode = modeOf(get("Mode"));
-    const priority = (get("Priority") || "medium").toLowerCase();
-    const trainer = get("Trainer");
-    const errors = [];
-    if (!name) errors.push("name missing");
-    else if (seen.has(name.toLowerCase())) errors.push("already in catalog / duplicate");
-    if (!cat) errors.push(catName ? `unknown category "${catName}"` : "category missing");
-    if (!get("Training Link")) errors.push("link missing");
-    if (!mode) errors.push(`unknown mode "${get("Mode")}"`);
-    if (mode === "face_to_face" && !trainer) errors.push("trainer required for face to face");
-    if (!PRIORITY_OPTIONS.includes(priority)) errors.push(`unknown priority "${get("Priority")}"`);
-    if (name) seen.add(name.toLowerCase());
-    return {
-      rowNo: i + 2, errors,
-      row: {
-        name, category_id: cat?.id, training_link: get("Training Link"), mode: mode || "online",
-        trainer: mode === "face_to_face" ? trainer : null, priority,
-        parts: get("Parts (separate with ;)").split(";").map(s => s.trim()).filter(Boolean).map(title => ({ title, part_link: null })),
-      },
-    };
-  });
+// Older category names that may still appear in sheets.
+const CATEGORY_ALIASES = {
+  "design": "Design, Research & Expertise", "research and expertise": "Design, Research & Expertise",
+  "process and capability development and culture": "Process & Capability Development",
+  "team and learning": "Culture, Team & Learning", "culture": "Culture, Team & Learning",
+};
+// Keyword guesses for sheets that don't carry the taxonomy (New Joiner plan).
+const CATEGORY_HINTS = [
+  [/financ|profit|cost|budget|account/, "Finance"],
+  [/market|customer|client|competit/, "Market & Customer"],
+  [/strateg|innovat|decision/, "Strategy & Innovation"],
+  [/genai|\bai\b|technical|software|develop|coding|solution/, "Technical Execution Skills"],
+  [/productiv|time manage/, "Productivity"],
+  [/design|figma|wirefram|research|user stor|analysis/, "Design, Research & Expertise"],
+  [/project|planning|tracking|reporting/, "Project Management & Reporting"],
+  [/excel|process|polic|protection|data manage|quality|tool/, "Process & Capability Development"],
+  [/induction|posh|ethic|conduct|value|leader|culture|team|communicat|delegat|learning/, "Culture, Team & Learning"],
+];
+const SECTION_HINTS = {
+  "human resource": "Culture, Team & Learning", "hr": "Culture, Team & Learning",
+  "quality assurance": "Process & Capability Development", "information technology": "Process & Capability Development",
+  "ba": "Design, Research & Expertise", "business analysis": "Design, Research & Expertise",
+};
+
+function findCategory(categories, text, group) {
+  const n = norm(text); if (!n) return null;
+  const target = CATEGORY_ALIASES[n] ? norm(CATEGORY_ALIASES[n]) : n;
+  return categories.find(c => norm(c.name) === target && (!group || c.group_name === group))
+    || categories.find(c => norm(c.name) === target) || null;
+}
+function guessCategory(categories, name, section) {
+  const n = norm(name);
+  const hit = CATEGORY_HINTS.find(([re]) => re.test(n));
+  const byName = hit && findCategory(categories, hit[1]);
+  return byName || findCategory(categories, SECTION_HINTS[norm(section)] || "") || null;
+}
+function modeFromMethod(m) {
+  const s = norm(m); if (!s) return null;
+  if (/blend/.test(s)) return "blended";
+  if (/1 2 1|large g|\bsg\b|classroom|face|workshop|in person|session/.test(s)) return "face_to_face";
+  if (/otc|online|course|edx|coursera|udemy|webinar|youtube/.test(s)) return "online";
+  if (/\bsad\b|self|\bred\b|read|book/.test(s)) return "self_paced";
+  return null;
+}
+function priorityFrom(p) {
+  const s = String(p || "").trim().toLowerCase();
+  if (PRIORITY_OPTIONS.includes(s)) return s;
+  return { "a+": "critical", "a": "high", "b+": "medium", "b": "low", "c": "low" }[s] || "medium";
+}
+// Detail/Comment cells hold either a link, a note, or both.
+function splitDetail(cell) {
+  const link = cell.link || (cell.text.match(URL_RE) || [])[0] || "";
+  const text = cell.text.replace(URL_RE, "").trim();
+  return { link, text };
+}
+
+// Sheet → rows of { text, link } (keeps hyperlinks, which sheet_to_json drops).
+function sheetGrid(XLSX, ws) {
+  if (!ws?.["!ref"]) return [];
+  const range = XLSX.utils.decode_range(ws["!ref"]);
+  const grid = [];
+  for (let r = range.s.r; r <= range.e.r; r++) {
+    const row = [];
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const cell = ws[XLSX.utils.encode_cell({ r, c })];
+      row.push({ text: cell ? String(cell.w ?? cell.v ?? "").trim() : "", link: cell?.l?.Target || "" });
+    }
+    grid.push(row);
+  }
+  return grid;
+}
+
+function parseTrainingSheet(grid, categories) {
+  const EMPTY = { text: "", link: "" };
+  const at = (row, i) => (i >= 0 && row[i]) || EMPTY;
+  const rowLink = row => row.map(c => c.link || (c.text.match(URL_RE) || [])[0] || "").find(Boolean) || "";
+  const hIdx = grid.findIndex(row => row.some(c => ["training topic", "trainings", "training name"].includes(norm(c.text))));
+  if (hIdx < 0) return null;
+  const header = grid[hIdx].map(c => norm(c.text));
+  const col = (...names) => header.findIndex(h => names.includes(h));
+  const out = [];
+
+  if (header.includes("training topic")) {
+    // New Joiner plan
+    const iTopic = col("training topic"), iDet = col("training details"), iTrainer = col("trainer"), iMethod = col("method");
+    let section = "";
+    for (const row of grid.slice(hIdx + 1)) {
+      const topic = at(row, iTopic).text;
+      if (!topic) continue;
+      if (/^(total trainings|self sign)/i.test(topic)) break;
+      if (![iDet, iTrainer, iMethod].some(i => at(row, i).text)) { section = topic; continue; }
+      const mode = modeFromMethod(at(row, iMethod).text) || "face_to_face";
+      out.push({
+        name: topic, description: at(row, iDet).text || null, section,
+        category_id: guessCategory(categories, topic, section)?.id || "",
+        training_link: rowLink(row), mode,
+        trainer: mode === "face_to_face" ? at(row, iTrainer).text || null : null, priority: "medium",
+      });
+    }
+    return { format: "New Joiner Training Plan", rows: out };
+  }
+
+  if (header.includes("trainings")) {
+    // TNI plan — category comes from the taxonomy cells left of "Trainings"
+    const iName = col("trainings"), iMethod = col("method"), iSrc = col("source trainer", "source", "trainer"),
+      iPri = col("priority"), iDet = col("detail comment", "details", "detail", "comment");
+    const groups = [...new Set(categories.map(c => c.group_name))];
+    let group = null, category = null;
+    for (const row of grid.slice(hIdx + 1)) {
+      if (row.some(c => /^b\s*particulars/.test(norm(c.text)))) break;
+      for (const c of row.slice(0, iName)) {
+        const g = groups.find(x => norm(x) === norm(c.text));
+        if (g) { group = g; category = null; continue; }
+        const cat = findCategory(categories, c.text, group);
+        if (cat) { category = cat; group = cat.group_name; }
+      }
+      const name = at(row, iName).text;
+      if (!name || /^\d+$/.test(name)) continue;
+      const mode = modeFromMethod(at(row, iMethod).text) || "self_paced";
+      const src = at(row, iSrc).text;
+      const detail = splitDetail(at(row, iDet));
+      out.push({
+        name, description: detail.text || null, section: category ? `${category.group_name} › ${category.name}` : "",
+        category_id: category?.id || guessCategory(categories, name, "")?.id || "",
+        training_link: detail.link || rowLink(row), mode,
+        trainer: mode === "face_to_face" ? (src && norm(src) !== "self" ? src : null) : null,
+        priority: priorityFrom(at(row, iPri).text),
+      });
+    }
+    return { format: "TNI Training Plan", rows: out };
+  }
+
+  // Simple sheet with a "Training Name" column
+  const iName = col("training name"), iGroup = col("category group"), iCat = col("category", "training category"),
+    iLink = col("training link", "link"), iMode = col("mode", "training mode", "method"), iTrainer = col("trainer"),
+    iPri = col("priority", "training priority"), iDet = col("training details", "details", "description");
+  for (const row of grid.slice(hIdx + 1)) {
+    const name = at(row, iName).text; if (!name) continue;
+    const m = norm(at(row, iMode).text).replace(/ /g, "_");
+    const mode = MODE_OPTIONS.some(o => o.value === m) ? m : modeFromMethod(at(row, iMode).text) || "online";
+    out.push({
+      name, description: at(row, iDet).text || null, section: "",
+      category_id: (findCategory(categories, at(row, iCat).text, categories.find(x => norm(x.group_name) === norm(at(row, iGroup).text))?.group_name) || guessCategory(categories, name, ""))?.id || "",
+      training_link: at(row, iLink).link || at(row, iLink).text || rowLink(row), mode,
+      trainer: mode === "face_to_face" ? at(row, iTrainer).text || null : null, priority: priorityFrom(at(row, iPri).text),
+    });
+  }
+  return { format: "Training list", rows: out };
 }
 
 function ImportModal({ categories, catalog, onImport, onClose }) {
-  const [parsed, setParsed] = useState(null);
+  const [rows, setRows] = useState(null); // [{ ...parsed, include }]
+  const [formats, setFormats] = useState([]);
   const [fileName, setFileName] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const valid = (parsed || []).filter(p => !p.errors.length);
 
-  const downloadTemplate = () => {
-    const XLSX = window.XLSX; if (!XLSX) { setErr("Excel library is still loading — try again in a moment."); return; }
-    const sample = [IMPORT_COLUMNS, ["Advanced SQL for Analysts", "Field & Subject", categories.find(c => c.group_name === "Field & Subject")?.name || "", "https://example.com/sql", "Online", "", "high", "Joins; Window functions; Query tuning"]];
-    const cats = [["Category Group", "Category"], ...categories.map(c => [c.group_name, c.name])];
-    const opts = [["Mode", "Priority"], ["Online", "low"], ["Face to Face", "medium"], ["Self-paced", "high"], ["Blended", "critical"]];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sample), "Trainings");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(cats), "Categories");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(opts), "Mode & Priority");
-    XLSX.writeFile(wb, "TrainTrack_Catalog_Template.xlsx");
-  };
+  const existing = new Set(catalog.map(c => norm(c.name)));
+  const checked = (rows || []).map((r, i, all) => {
+    const errors = [];
+    if (existing.has(norm(r.name))) errors.push("already in catalog");
+    else if (all.slice(0, i).some(x => x.include && norm(x.name) === norm(r.name))) errors.push("duplicate in sheet");
+    if (!r.category_id) errors.push("pick a category");
+    if (r.mode === "face_to_face" && !r.trainer) errors.push("trainer missing");
+    return { ...r, errors };
+  });
+  const ready = checked.filter(r => r.include && !r.errors.length);
+  const setRow = (i, patch) => setRows(p => p.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+  const groups = [...new Set(categories.map(c => c.group_name))];
 
   const onFile = async e => {
     const file = e.target.files?.[0]; if (!file) return;
-    setErr(""); setFileName(file.name);
+    setErr(""); setFileName(file.name); setRows(null);
     try {
       const XLSX = window.XLSX; if (!XLSX) throw new Error("Excel library is still loading — try again in a moment.");
+      if (/\.pdf$/i.test(file.name)) throw new Error("PDFs can't be read — open the sheet in Google Sheets / Excel and download it as .xlsx.");
       const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
-      if (!rows.length) throw new Error("No rows found in the first sheet.");
-      if (!("Training Name" in rows[0])) throw new Error("Column \"Training Name\" not found — please use the template.");
-      setParsed(parseImportRows(rows, categories, catalog.map(c => c.name)));
-    } catch (ex) { setErr(ex.message); setParsed(null); }
+      const parsed = wb.SheetNames.map(n => parseTrainingSheet(sheetGrid(XLSX, wb.Sheets[n]), categories)).filter(p => p?.rows.length);
+      if (!parsed.length) throw new Error("No trainings found. Use a New Joiner Training Plan or TNI sheet (or a sheet with a \"Training Name\" column).");
+      setFormats([...new Set(parsed.map(p => p.format))]);
+      const all = parsed.flatMap(p => p.rows);
+      setRows(all.map(r => ({ ...r, include: !existing.has(norm(r.name)) })));
+    } catch (ex) { setErr(ex.message); }
+    e.target.value = "";
   };
 
   const doImport = async () => {
     setBusy(true); setErr("");
-    try { await onImport(valid.map(v => v.row)); } catch (ex) { setErr(ex.message); }
+    try {
+      await onImport(ready.map(r => ({
+        name: r.name, description: r.description, category_id: r.category_id, training_link: r.training_link || null,
+        mode: r.mode, trainer: r.trainer, priority: r.priority, parts: [],
+      })));
+    } catch (ex) { setErr(ex.message); }
     setBusy(false);
   };
 
@@ -1720,35 +1884,50 @@ function ImportModal({ categories, catalog, onImport, onClose }) {
       <ModalContent size="xl">
         <DialogHeader>
           <DialogTitle>Bulk Import Trainings</DialogTitle>
-          <DialogDescription>Upload an Excel sheet to add many trainings to the catalog at once.</DialogDescription>
+          <DialogDescription>Upload a company training sheet — a <strong>New Joiner 6 Months Training Plan</strong> or a <strong>TNI plan</strong> — as it is. Trainings are read and added to the catalog.</DialogDescription>
         </DialogHeader>
-        <div className="rounded-lg bg-indigo-50 border border-indigo-200 px-3.5 py-3 text-[12.5px] text-indigo-800 flex items-center justify-between gap-3 flex-wrap">
-          <span>1. Download the template, fill one training per row. 2. Upload it here.</span>
-          <Button size="sm" variant="outline" onClick={downloadTemplate}><Download className="h-3.5 w-3.5 mr-1.5" />Template</Button>
-        </div>
         <label className="flex items-center justify-center gap-2 border-2 border-dashed rounded-xl py-6 cursor-pointer hover:bg-muted transition text-[13px] text-muted-foreground">
           <Upload className="h-4 w-4" />{fileName || "Choose .xlsx / .csv file"}
-          <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onFile} />
+          <input type="file" accept=".xlsx,.xls,.csv,.pdf" className="hidden" onChange={onFile} />
         </label>
-        {parsed && (
+        <p className="text-xs text-muted-foreground -mt-2">From Google Sheets: File → Download → Microsoft Excel (.xlsx). All tabs are read.</p>
+
+        {rows && (
           <div>
-            <div className="text-[13px] font-semibold mb-2">{valid.length} of {parsed.length} rows ready to import</div>
-            <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
-              {parsed.map(p => (
-                <div key={p.rowNo} className={cn("flex items-start gap-2.5 px-3 py-2 text-[12.5px]", p.errors.length && "bg-rose-50/60")}>
-                  <span className="text-muted-foreground w-12 shrink-0">Row {p.rowNo}</span>
-                  <span className="flex-1 font-medium">{p.row.name || <em className="text-muted-foreground">(no name)</em>}</span>
-                  {p.errors.length ? <span className="text-rose-600 text-right">{p.errors.join(", ")}</span> : <Check className="h-4 w-4 text-emerald-600" />}
+            <div className="text-[13px] font-semibold mb-1">Detected: {formats.join(" + ")} · {ready.length} of {rows.length} ready to import</div>
+            <p className="text-xs text-muted-foreground mb-2">Check the categories (auto-matched), untick anything you don't want. Links can be added later — they're required only when assigning.</p>
+            <div className="border rounded-lg divide-y max-h-[340px] overflow-y-auto">
+              {checked.map((r, i) => (
+                <div key={i} className={cn("flex items-start gap-2.5 px-3 py-2.5 text-[12.5px]", !r.include && "opacity-50", r.include && r.errors.length && "bg-rose-50/60")}>
+                  <Checkbox checked={r.include} onCheckedChange={v => setRow(i, { include: !!v })} className="mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium">{r.name}</div>
+                    <div className="text-[11px] text-muted-foreground flex gap-2 flex-wrap mt-0.5">
+                      {r.section && <span>{r.section}</span>}
+                      <span>{MODE_OPTIONS.find(m => m.value === r.mode)?.label}{r.trainer ? ` · ${r.trainer}` : ""}</span>
+                      <span className="capitalize">{r.priority}</span>
+                      {r.training_link ? <span className="text-indigo-700 inline-flex items-center gap-0.5"><Link2 className="h-3 w-3" />link</span> : <span>no link</span>}
+                    </div>
+                    {r.include && r.errors.length > 0 && <div className="text-[11px] text-rose-600 mt-0.5">{r.errors.join(", ")}</div>}
+                  </div>
+                  <select value={r.category_id} onChange={e => setRow(i, { category_id: e.target.value })}
+                    className={cn("h-8 rounded-md border bg-card px-2 text-[12px] max-w-[210px]", !r.category_id && "border-rose-300")}>
+                    <option value="">— Category —</option>
+                    {groups.map(g => (
+                      <optgroup key={g} label={g}>
+                        {categories.filter(c => c.group_name === g).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </optgroup>
+                    ))}
+                  </select>
                 </div>
               ))}
             </div>
-            {valid.length < parsed.length && <p className="text-xs text-muted-foreground mt-1.5">Rows with errors are skipped. Fix them in the sheet and import again.</p>}
           </div>
         )}
         {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
-          <Button className="flex-[2]" disabled={!valid.length || busy} onClick={doImport}>{busy ? "Importing…" : `Import ${valid.length} training${valid.length === 1 ? "" : "s"}`}</Button>
+          <Button className="flex-[2]" disabled={!ready.length || busy} onClick={doImport}>{busy ? "Importing…" : `Import ${ready.length} training${ready.length === 1 ? "" : "s"}`}</Button>
         </DialogFooter>
       </ModalContent>
     </Dialog>
@@ -1806,7 +1985,9 @@ function CatalogPage({ catalog, categories, trainings, canAssign, onSave, onImpo
                 <div className="text-xs text-muted-foreground mt-1 flex gap-3 flex-wrap">
                   <span>{c.training_categories ? `${c.training_categories.group_name} · ${c.training_categories.name}` : "No category"}</span>
                   <span>{MODE_OPTIONS.find(m => m.value === c.mode)?.label}{c.trainer ? ` · ${c.trainer}` : ""}</span>
-                  <a href={safeUrl(c.training_link)} target="_blank" rel="noreferrer" className="text-indigo-700 hover:underline inline-flex items-center gap-1"><Link2 className="h-3 w-3" />Material</a>
+                  {c.training_link
+                    ? <a href={safeUrl(c.training_link)} target="_blank" rel="noreferrer" className="text-indigo-700 hover:underline inline-flex items-center gap-1"><Link2 className="h-3 w-3" />Material</a>
+                    : <span className="text-amber-700">No link yet</span>}
                   <span className={cn(used && "text-indigo-700 font-medium")}>{used} active</span>
                 </div>
               </div>
@@ -2054,6 +2235,157 @@ function Settings({ reportees, trainings, currentFY, onAddReportee, onToggleActi
         onConfirm={doFinalize}
         onCancel={() => setConfirmFinalize(false)}
       />
+    </div>
+  );
+}
+
+// ── OVERVIEW (admin / HR, read-only) ──────────────────────────────────────────
+// Org-wide picture: who has how many trainings, their status, and how each
+// manager is keeping up with approvals.
+function statusCounts(ts) {
+  const c = { total: 0, notStarted: 0, inProgress: 0, awaiting: 0, sentBack: 0, completed: 0, overdue: 0, doneU: 0, totalU: 0 };
+  for (const t of ts) {
+    const s = getEffStatus(t); if (s === "discarded") continue;
+    c.total++;
+    if (s === "pending") c.notStarted++;
+    else if (s === "in_progress") c.inProgress++;
+    else if (s === "submitted") c.awaiting++;
+    else if (s === "sent_back") c.sentBack++;
+    else if (s === "approved") c.completed++;
+    if (isOpenStatus(s) && isOverdue(t.due_date)) c.overdue++;
+    const u = getUnits(t); c.doneU += u.done; c.totalU += u.total;
+  }
+  c.pct = c.totalU ? Math.round(c.doneU / c.totalU * 100) : 0;
+  return c;
+}
+
+function AdminOverview({ people, trainings, requests, onDetail, onExport, onRefresh, refreshing }) {
+  const [fy, setFy] = useState(getFY());
+  const [mgrF, setMgrF] = useState("all");
+  const [member, setMember] = useState(null);
+  const fyList = [...new Set([getFY(), ...trainings.map(t => t.fy)])].filter(Boolean).sort().reverse();
+  const managers = people.filter(p => p.role === "reporting_manager");
+  const reportees = people.filter(p => p.role === "reportee" && (mgrF === "all" || p.manager_id === mgrF));
+  const repIds = new Set(reportees.map(r => r.id));
+  const fyT = trainings.filter(t => t.fy === fy && repIds.has(t.assigned_to));
+  const fyIds = new Set(fyT.map(t => t.id));
+  const fyReqs = requests.filter(r => fyIds.has(r.training_id));
+  const all = statusCounts(fyT);
+  const nameOf = id => people.find(p => p.id === id)?.full_name || "—";
+  const pctTone = p => p >= 60 ? "text-emerald-600" : p >= 30 ? "text-amber-600" : "text-rose-600";
+
+  const stats = [
+    { label: "Employees", value: reportees.length, note: `${managers.length} managers`, Icon: Users },
+    { label: "Trainings assigned", value: all.total, note: `${all.totalU} units`, Icon: Package },
+    { label: "Completed", value: all.completed, note: `${all.pct}% of units`, Icon: Check },
+    { label: "In progress", value: all.inProgress + all.sentBack, note: `${all.notStarted} not started`, Icon: CircleDot },
+    { label: "Awaiting approval", value: fyReqs.filter(r => r.status === "pending").length, note: "with managers", Icon: Clock },
+    { label: "Overdue", value: all.overdue, note: "past due date", Icon: AlertCircle },
+  ];
+
+  const mgrRows = managers.filter(m => mgrF === "all" || m.id === mgrF).map(m => {
+    const team = reportees.filter(r => r.manager_id === m.id);
+    const ids = new Set(team.map(r => r.id));
+    const ts = fyT.filter(t => ids.has(t.assigned_to));
+    const tIds = new Set(ts.map(t => t.id));
+    const reqs = fyReqs.filter(r => tIds.has(r.training_id));
+    return {
+      m, team: team.length, c: statusCounts(ts),
+      approved: reqs.filter(r => r.status === "approved").length,
+      sentBack: reqs.filter(r => r.status === "sent_back").length,
+      pending: reqs.filter(r => r.status === "pending").length,
+    };
+  });
+
+  const Th = ({ children, left }) => <th className={cn("font-medium px-3 py-3 text-xs uppercase tracking-wide text-muted-foreground whitespace-nowrap", left ? "text-left" : "text-center")}>{children}</th>;
+  const Td = ({ children, className }) => <td className={cn("px-3 py-3 text-center", className)}>{children}</td>;
+  const num = (v, cls) => v ? <span className={cls}>{v}</span> : <span className="text-muted-foreground/40">0</span>;
+
+  return (
+    <div>
+      <div className="flex items-start justify-between gap-4 flex-wrap mb-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Training Overview</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Organisation-wide progress and approvals (view only)</p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <Select value={mgrF} onValueChange={setMgrF}>
+            <SelectTrigger className="w-[190px]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All managers</SelectItem>
+              {managers.map(m => <SelectItem key={m.id} value={m.id}>{m.full_name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={fy} onValueChange={setFy}>
+            <SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger>
+            <SelectContent>{fyList.map(f => <SelectItem key={f} value={f}>FY {f}</SelectItem>)}</SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={onRefresh}><RefreshCw className={cn("h-4 w-4 mr-1.5", refreshing && "animate-spin")} />Refresh</Button>
+          <Button variant="outline" size="sm" onClick={() => onExport(reportees, fy)}><Download className="h-4 w-4 mr-1.5" />Export</Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
+        {stats.map(s => { const Icon = s.Icon; return (
+          <Card key={s.label}><CardContent className="p-5">
+            <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-indigo-50 text-indigo-600 mb-3"><Icon className="h-[18px] w-[18px]" /></div>
+            <div className="text-3xl font-bold tracking-tight leading-none">{s.value}</div>
+            <div className="text-[13px] font-semibold mt-1.5">{s.label}</div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">{s.note}</div>
+          </CardContent></Card>
+        ); })}
+      </div>
+
+      <SectionLabel>Managers — FY {fy}</SectionLabel>
+      <Card className="overflow-hidden mb-8">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="bg-muted/50 border-b">
+              <Th left>Manager</Th><Th>Team</Th><Th>Assigned</Th><Th>Completed</Th><Th>Approvals given</Th><Th>Sent back</Th><Th>Awaiting approval</Th><Th>Overdue</Th><Th>Completion</Th>
+            </tr></thead>
+            <tbody>
+              {mgrRows.map(({ m, team, c, approved, sentBack, pending }) => (
+                <tr key={m.id} className="border-b last:border-0">
+                  <td className="px-3 py-3"><div className="flex items-center gap-2.5"><UAvatar name={m.full_name} color={m.color} className="h-7 w-7" /><span className="font-medium">{m.full_name}</span></div></td>
+                  <Td>{team}</Td><Td>{c.total}</Td><Td>{num(c.completed, "text-emerald-600 font-semibold")}</Td>
+                  <Td>{num(approved, "font-semibold")}</Td><Td>{num(sentBack, "text-orange-600")}</Td>
+                  <Td>{num(pending, "text-violet-700 font-semibold")}</Td><Td>{num(c.overdue, "text-rose-600 font-semibold")}</Td>
+                  <Td><span className={cn("font-bold", c.total ? pctTone(c.pct) : "text-muted-foreground/40")}>{c.total ? `${c.pct}%` : "—"}</span></Td>
+                </tr>
+              ))}
+              {mgrRows.length === 0 && <tr><td colSpan={9} className="text-center text-muted-foreground py-6">No managers yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <SectionLabel>Employees — FY {fy}</SectionLabel>
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="bg-muted/50 border-b">
+              <Th left>Employee</Th><Th left>Manager</Th><Th>Assigned</Th><Th>Not started</Th><Th>In progress</Th><Th>Awaiting approval</Th><Th>Completed</Th><Th>Overdue</Th><Th>Progress</Th><Th></Th>
+            </tr></thead>
+            <tbody>
+              {reportees.map(u => { const c = statusCounts(fyT.filter(t => t.assigned_to === u.id)); return (
+                <tr key={u.id} className={cn("border-b last:border-0", !u.is_active && "opacity-60")}>
+                  <td className="px-3 py-3"><div className="flex items-center gap-2.5"><UAvatar name={u.full_name} color={u.color} className="h-7 w-7" /><div className="min-w-0"><div className="font-medium truncate">{u.full_name}{!u.is_active && <span className="text-muted-foreground font-normal"> (inactive)</span>}</div><div className="text-[11px] text-muted-foreground truncate">{u.email}</div></div></div></td>
+                  <td className="px-3 py-3 text-[13px] text-muted-foreground whitespace-nowrap">{nameOf(u.manager_id)}</td>
+                  <Td>{c.total}</Td><Td>{num(c.notStarted)}</Td><Td>{num(c.inProgress + c.sentBack, "text-indigo-700")}</Td>
+                  <Td>{num(c.awaiting, "text-violet-700 font-semibold")}</Td><Td>{num(c.completed, "text-emerald-600 font-semibold")}</Td>
+                  <Td>{num(c.overdue, "text-rose-600 font-semibold")}</Td>
+                  <td className="px-3 py-3 min-w-[130px]">{c.total ? <div className="flex items-center gap-2"><Progress value={c.pct} className="h-1.5 flex-1" /><span className={cn("text-[12px] font-semibold w-9 text-right", pctTone(c.pct))}>{c.pct}%</span></div> : <span className="text-muted-foreground/40 text-[12px]">No trainings</span>}</td>
+                  <Td>{c.total > 0 && <Button size="sm" variant="ghost" className="text-indigo-700" onClick={() => setMember(u)}>View <ChevronRight className="h-3.5 w-3.5 ml-0.5" /></Button>}</Td>
+                </tr>
+              ); })}
+              {reportees.length === 0 && <tr><td colSpan={10} className="text-center text-muted-foreground py-6">No employees yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <MemberTrainingsModal member={member} onClose={() => setMember(null)} fyFilter={fy}
+        trainings={fyT.filter(t => member && t.assigned_to === member.id)} onDetail={onDetail} />
     </div>
   );
 }
@@ -2397,7 +2729,7 @@ svg.lucide{display:block;flex-shrink:0}
         setLoginRole(null); api.signOut(); return;
       }
       setLoginRole(null); setLoginError("");
-      setTab(p.role === "admin" ? "users" : p.role === "reporting_manager" ? "dashboard" : "my-trainings");
+      setTab(p.role === "admin" ? "overview" : p.role === "reporting_manager" ? "dashboard" : "my-trainings");
       setProfile(p);
     }).catch(() => setProfile(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2406,8 +2738,8 @@ svg.lucide{display:block;flex-shrink:0}
   const loadData = async () => {
     if (!profile) return;
     if (profile.role === "admin") {
-      const [cats, ppl, cat] = await Promise.all([api.listCategories(), api.listVisibleProfiles(), api.listCatalog()]);
-      setCategories(cats); setPeople(ppl); setCatalog(cat);
+      const [cats, ppl, cat, trs, reqs] = await Promise.all([api.listCategories(), api.listVisibleProfiles(), api.listCatalog(), api.listTrainings(), api.listAllRequests()]);
+      setCategories(cats); setPeople(ppl); setCatalog(cat); setTrainings(trs); setRequests(reqs);
       return;
     }
     const [cats, trs, ppl] = await Promise.all([api.listCategories(), api.listTrainings(), api.listVisibleProfiles()]);
@@ -2477,9 +2809,11 @@ svg.lucide{display:block;flex-shrink:0}
 
   const bulkAssign = async ({ items, memberIds, expectedEnd, dueDate }) => {
     for (const c of items) {
+      // Link entered during bulk assign → keep it on the catalog entry too.
+      if (!catalog.find(x => x.id === c.id)?.training_link) await api.saveCatalogItem({ id: c.id, training_link: c.training_link });
       for (const assigned_to of memberIds) {
         await api.createTraining({
-          name: c.name, category_id: c.category_id, training_link: c.training_link, mode: c.mode,
+          name: c.name, description: c.description || null, category_id: c.category_id, training_link: c.training_link, mode: c.mode,
           trainer: c.trainer, priority: c.priority, resources: c.resources || [],
           expected_end_date: expectedEnd, due_date: dueDate, fy: currentFY, status: "pending",
           catalog_id: c.id, assigned_to,
@@ -2531,9 +2865,14 @@ svg.lucide{display:block;flex-shrink:0}
       <div className="flex h-screen bg-background text-foreground overflow-hidden font-sans">
         <Sidebar profile={profile} tab={tab} setTab={setTab} onLogout={logout} myDone={0} myTotal={0} trainings={[]} currentFY={currentFY} pendingApprovalsCount={0} />
         <main className="flex-1 overflow-auto p-8">
+          {tab === "overview" && <AdminOverview people={people} trainings={trainings} requests={requests} onRefresh={refresh} refreshing={refreshing}
+            onDetail={(t, p) => setDetailT({ training: t, part: p })} onExport={(reps, fy) => setExportOpen({ reportees: reps, fy })} />}
           {tab === "users" && <UsersAdmin me={profile} people={people} onCreate={createUser} onUpdate={updateUser} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} />}
-          {tab === "catalog" && <CatalogPage catalog={catalog} categories={categories} trainings={[]} canAssign={false} onSave={saveCatalogItem} onImport={importCatalog} onDelete={deleteCatalogItem} />}
+          {tab === "catalog" && <CatalogPage catalog={catalog} categories={categories} trainings={trainings} canAssign={false} onSave={saveCatalogItem} onImport={importCatalog} onDelete={deleteCatalogItem} />}
         </main>
+        {detailTarget && <DetailModal training={detailTarget.training} part={detailTarget.part} reportees={people} requests={requests} onClose={() => setDetailT(null)} />}
+        {exportOpen && <ExportModal reportees={exportOpen.reportees} trainings={trainings.filter(t => exportOpen.reportees.some(r => r.id === t.assigned_to))} requests={requests}
+          fyList={[...new Set([getFY(), ...trainings.map(t => t.fy)])].filter(Boolean).sort().reverse()} currentFY={exportOpen.fy} onClose={() => setExportOpen(false)} />}
       </div>
     );
   }
