@@ -4,8 +4,9 @@ import {
   BookOpen, LogOut, Plus, RefreshCw, Download, Search, Link2, X,
   ChevronDown, ChevronUp, ChevronRight, Check, CircleDot, Circle, Clock, AlertCircle,
   Target, Users, Package, Trophy, Pencil, Trash2, GraduationCap, ExternalLink,
-  Mail, Copy, Sparkles, ShieldCheck, CalendarDays,
+  Mail, Copy, Sparkles, ShieldCheck, CalendarDays, Play, Upload, FolderOpen, UserCog, Send,
 } from "lucide-react";
+import o2hLogo from "./assets/o2h-logo.svg";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -22,62 +23,32 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
+import * as api from "./lib/api";
 
 // Local classNames helper (shadcn's @/lib/utils isn't available in this environment)
 const cn = (...args) => args.flat(Infinity).filter(Boolean).join(" ");
 
 // ── Domain constants ──────────────────────────────────────────────────────────
 const COLORS = ["#4f46e5","#0891b2","#0f9d6b","#d97706","#e0455e","#2563eb","#7c3aed","#0f766e","#db2777","#475569"];
-const CATALOG_SEED = [
-  "Agile & Scrum Fundamentals","Business Analysis Techniques",
-  "Data Analysis with Excel","JIRA & Project Management",
-  "Stakeholder Communication","SQL for Business Analysts",
-  "Power BI Dashboards","Risk Management Basics",
-  "Requirements Elicitation","Process Mapping & BPM",
-  "UX Research Methods","Presentation Skills",
+const MODE_OPTIONS = [
+  { value: "online", label: "Online" },
+  { value: "face_to_face", label: "Face to Face" },
+  { value: "self_paced", label: "Self-paced" },
+  { value: "blended", label: "Blended" },
 ];
-const DEFAULT_SUPERVISOR = { id:"u0", name:"Supervisor", role:"supervisor", email:"", color:"#4f46e5", pin:"0000", pinSet:true };
-const DEFAULT_SETTINGS   = { pendingReminderDays:7, overdueReminderDays:3 };
+const PRIORITY_OPTIONS = ["low", "medium", "high", "critical"];
+const ROLE_LABELS = { reportee: "Reportee", reporting_manager: "Reporting Manager", admin: "Admin / HR" };
+const PROGRESS_STEPS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+const DEFAULT_SETTINGS = { pendingReminderDays: 7, overdueReminderDays: 3 };
+// Statuses where the ball is still in the reportee's court (relevant for "overdue").
+const OPEN_STATUSES = ["pending", "in_progress", "sent_back"];
+const isOpenStatus = s => OPEN_STATUSES.includes(s);
 
 const ACHIEVEMENT = {
   star:        { emoji:"🌟", label:"Star Performer",  cls:"bg-amber-100 text-amber-700 border-amber-200" },
   "on-track":  { emoji:"✅", label:"On Track",        cls:"bg-emerald-100 text-emerald-700 border-emerald-200" },
   progressing: { emoji:"📈", label:"In Progress",     cls:"bg-indigo-100 text-indigo-700 border-indigo-200" },
   behind:      { emoji:"⚠️", label:"Needs Attention", cls:"bg-orange-100 text-orange-700 border-orange-200" },
-};
-
-// ── Storage (SAFE) ────────────────────────────────────────────────────────────
-// Bug in previous build: a schema-version gate wiped everything whenever the
-// version key failed to read, so every refresh looked like a "first run".
-// Fix: never wipe on read. Only *migrate* old shapes forward, and keep an
-// in-memory mirror so a flaky storage backend can't blank the UI mid-session.
-const mem = {};
-const S = {
-  get: async k => {
-    try {
-      const res = await fetch(`/api/storage/${k}`);
-      if (res.ok) {
-        const data = await res.json();
-        mem[k] = data.value;
-        return data.value;
-      }
-    } catch (e) {
-      console.error("fetch /api/storage GET failed, kept in memory:", e);
-    }
-    return k in mem ? mem[k] : null;
-  },
-  set: async (k, v) => {
-    mem[k] = v;
-    try {
-      await fetch(`/api/storage/${k}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value: v })
-      });
-    } catch (e) {
-      console.error("fetch /api/storage POST failed, kept in memory:", e);
-    }
-  },
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -94,53 +65,38 @@ const safeUrl = u => {
   if (/^(https?:\/\/|mailto:|tel:)/i.test(s)) return s;
   return "https://" + s;
 };
-const uid       = p => `${p}${Date.now()}${Math.random().toString(36).slice(2,6)}`;
+const uid = p => `${p}${Date.now()}${Math.random().toString(36).slice(2,6)}`;
 
 function getFY(ds) { const d=ds?new Date(ds+"T00:00:00"):new Date(),y=d.getFullYear(),m=d.getMonth()+1; return m>=4?`${y}-${String(y+1).slice(-2)}`:`${y-1}-${String(y).slice(-2)}`; }
 function nextFY(fy) { const y=parseInt(fy.split("-")[0]); return `${y+1}-${String(y+2).slice(-2)}`; }
 
-// Catalog normalization → {id,name,resources:[],parts:[{id,title,resources:[]}]}
-const normPart = p => typeof p==="string"
-  ? {id:uid("cp"),title:p,resources:[]}
-  : {id:p.id||uid("cp"),title:p.title||"",resources:cleanLinks(p.resources)};
-const normCatalog = catalog => (catalog||[]).map(item => {
-  if (typeof item==="string") return {id:uid("c"),name:item,resources:[],parts:[]};
-  return {
-    id:item.id||uid("c"),
-    name:item.name||"",
-    resources:cleanLinks(item.resources),
-    parts:(item.parts||item.defaultParts||[]).filter(p=>typeof p==="string"?p.trim():p&&p.title!==undefined).map(normPart),
-  };
-});
-const mkDefaultCatalog = () => CATALOG_SEED.map(name=>({id:uid("c"),name,resources:[],parts:[]}));
-
 // Training-instance helpers
-const hasParts     = t => t.parts && t.parts.length > 0;
-const getEffStatus = t => {
-  if (!hasParts(t)) return t.status||"pending";
-  const done = t.parts.filter(p=>p.status==="completed").length;
-  if (done===0) return "pending";
-  if (done===t.parts.length) return "completed";
-  return "in-progress";
-};
+const sortedParts = t => [...(t.training_parts || [])].sort((a,b)=>(a.sort_order??0)-(b.sort_order??0));
+const hasParts     = t => (t.training_parts || []).length > 0;
+const getEffStatus = t => t.status || "pending"; // authoritative — the DB rolls part statuses up already
 const getUnits = t => {
-  if (!hasParts(t)) return {done:t.status==="completed"?1:0, total:1};
-  const done=t.parts.filter(p=>p.status==="completed").length;
-  return {done,total:t.parts.length};
+  if (!hasParts(t)) return { done: t.status==="approved"?1:0, total: 1 };
+  const parts = t.training_parts;
+  return { done: parts.filter(p=>p.status==="approved").length, total: parts.length };
 };
 const partsLabel = t => { if(!hasParts(t)) return null; const {done,total}=getUnits(t); return `${done}/${total} Parts`; };
 
 const getAchievement = (user, fyTrainings) => {
-  const ut = fyTrainings.filter(t=>t.userId===user.id && getEffStatus(t)!=="discarded");
+  const ut = fyTrainings.filter(t=>t.assigned_to===user.id && t.status!=="discarded");
   if (!ut.length) return null;
   const {done,total} = ut.reduce((a,t)=>{const u=getUnits(t);return{done:a.done+u.done,total:a.total+u.total}},{done:0,total:0});
   const pct = total ? done/total : 0;
-  const hasOD = ut.some(t=>{const s=getEffStatus(t);return(s==="pending"||s==="in-progress")&&isOverdue(t.dueDate);});
+  const hasOD = ut.some(t=>isOpenStatus(t.status) && isOverdue(t.due_date));
   if (pct===1) return "star";
   if (pct>=0.7 && !hasOD) return "on-track";
   if (hasOD) return "behind";
   return "progressing";
 };
+
+// Find the latest completion_request for a training/part, optionally filtered by status.
+function reqFor(requests, trainingId, partId, status) {
+  return requests.find(r => r.training_id===trainingId && (r.part_id||null)===(partId||null) && (!status || r.status===status));
+}
 
 // ── Small presentational atoms ────────────────────────────────────────────────
 function UAvatar({ name, color, className }) {
@@ -154,8 +110,10 @@ function UAvatar({ name, color, className }) {
 }
 
 function StatusBadge({ status, dueDate }) {
-  if (status === "completed")   return <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 gap-1 font-medium"><Check className="h-3 w-3" />Completed</Badge>;
-  if (status === "in-progress") return <Badge className="bg-indigo-100 text-indigo-700 border-indigo-200 gap-1 font-medium"><CircleDot className="h-3 w-3" />In Progress</Badge>;
+  if (status === "approved")    return <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 gap-1 font-medium"><Check className="h-3 w-3" />Completed</Badge>;
+  if (status === "in_progress") return <Badge className="bg-indigo-100 text-indigo-700 border-indigo-200 gap-1 font-medium"><CircleDot className="h-3 w-3" />In Progress</Badge>;
+  if (status === "submitted")   return <Badge className="bg-violet-100 text-violet-700 border-violet-200 gap-1 font-medium"><Clock className="h-3 w-3" />Awaiting Approval</Badge>;
+  if (status === "sent_back")   return <Badge className="bg-orange-100 text-orange-700 border-orange-200 gap-1 font-medium"><AlertCircle className="h-3 w-3" />Sent Back</Badge>;
   if (status === "discarded")   return <Badge variant="outline" className="text-muted-foreground gap-1 font-medium">Discarded</Badge>;
   if (dueDate && isOverdue(dueDate)) return <Badge className="bg-rose-100 text-rose-700 border-rose-200 gap-1 font-medium"><AlertCircle className="h-3 w-3" />Overdue</Badge>;
   return <Badge className="bg-amber-100 text-amber-700 border-amber-200 gap-1 font-medium"><Circle className="h-3 w-3" />Pending</Badge>;
@@ -171,7 +129,7 @@ function FYBadge({ fy }) {
 }
 
 function PartDot({ n, status }) {
-  const done = status === "completed";
+  const done = status === "approved";
   return (
     <div className={cn(
       "h-6 w-6 rounded-md border-2 flex items-center justify-center text-[11px] font-bold shrink-0",
@@ -220,7 +178,6 @@ function ConfirmDialog({ open, title, body, confirmLabel = "Confirm", danger, on
     </Dialog>
   );
 }
-
 
 // ── Link editors & cards ──────────────────────────────────────────────────────
 function LinkListEditor({ links, setLinks, urlP = "https://...", titleP = "Link title", addLabel = "Add link" }) {
@@ -272,120 +229,107 @@ function LinkChips({ links }) {
   );
 }
 
-// ── Catalog Part Editor (parts WITH per-part links) ───────────────────────────
-function CatalogPartEditor({ parts, setParts }) {
-  const [openId, setOpenId] = useState(null);
-  const add = () => { const id = uid("cp"); setParts(p => [...p, { id, title: "", resources: [] }]); setOpenId(id); };
-  const rm = id => setParts(p => p.filter(x => x.id !== id));
-  const upd = (id, f, v) => setParts(p => p.map(x => x.id === id ? { ...x, [f]: v } : x));
+function CategorySelect({ categories, value, onChange }) {
+  const groups = [...new Set(categories.map(c => c.group_name))];
+  const current = categories.find(c => c.id === value);
+  const [group, setGroup] = useState(current?.group_name || "");
+  useEffect(() => { const c = categories.find(c => c.id === value); if (c) setGroup(c.group_name); }, [value, categories]);
+  const inGroup = categories.filter(c => c.group_name === group);
   return (
-    <div className="space-y-2.5">
-      {parts.map((pt, i) => {
-        const open = openId === pt.id; const nlinks = cleanLinks(pt.resources).length;
-        return (
-          <div key={pt.id} className={cn("rounded-xl border bg-card overflow-hidden", open ? "border-indigo-300 bg-indigo-50/30" : "border-border")}>
-            <div className="flex items-center gap-2.5 p-2.5">
-              <PartDot n={i + 1} status="pending" />
-              <Input value={pt.title} onChange={e => upd(pt.id, "title", e.target.value)} placeholder={`Part ${i + 1} name (e.g. "Module 1: Introduction")`} className="border-0 shadow-none focus-visible:ring-0 px-1 bg-transparent h-8" />
-              {nlinks > 0 && <span className="text-[11px] font-semibold text-indigo-700 bg-indigo-100 rounded-md px-2 py-0.5 shrink-0 inline-flex items-center gap-1"><Link2 className="h-3 w-3" />{nlinks}</span>}
-              <Button type="button" variant="ghost" size="sm" className="shrink-0 text-muted-foreground h-8" onClick={() => setOpenId(open ? null : pt.id)}>
-                {open ? <ChevronUp className="h-4 w-4" /> : <><Plus className="h-3 w-3 mr-1" />links</>}
-              </Button>
-              <Button type="button" variant="ghost" size="icon" className="shrink-0 text-rose-400 h-8 w-8" onClick={() => rm(pt.id)}><X className="h-4 w-4" /></Button>
-            </div>
-            {open && (
-              <div className="px-3 pb-3 pt-1 pl-12 border-t">
-                <p className="text-[11px] text-muted-foreground my-2">Reference material for this part only</p>
-                <LinkListEditor
-                  links={pt.resources || []}
-                  setLinks={fn => upd(pt.id, "resources", typeof fn === "function" ? fn(pt.resources || []) : fn)}
-                  addLabel="Add part link" titleP="e.g. 'Module video'"
-                />
-              </div>
-            )}
-          </div>
-        );
-      })}
-      <Button type="button" variant="outline" size="sm" className="border-dashed text-muted-foreground" onClick={add}>
-        <Plus className="h-3.5 w-3.5 mr-1" />Add Part
-      </Button>
+    <div className="grid grid-cols-2 gap-2">
+      <Select value={group} onValueChange={g => { setGroup(g); onChange(""); }}>
+        <SelectTrigger><SelectValue placeholder="Group" /></SelectTrigger>
+        <SelectContent>{groups.map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}</SelectContent>
+      </Select>
+      <Select value={value} onValueChange={onChange} disabled={!group}>
+        <SelectTrigger><SelectValue placeholder="Category" /></SelectTrigger>
+        <SelectContent>{inGroup.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+      </Select>
     </div>
   );
 }
 
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
-function LoginScreen({ users, onLogin, onUpdateUser }) {
-  const [userId, setUserId] = useState(""); const [stage, setStage] = useState("select");
-  const [pin, setPin] = useState(""); const [email, setEmail] = useState(""); const [np, setNp] = useState(""); const [cp, setCp] = useState(""); const [err, setErr] = useState("");
-  const user = users.find(u => u.id === userId);
-  const sel = id => { setUserId(id); setErr(""); setPin(""); setEmail(""); setNp(""); setCp(""); const u = users.find(x => x.id === id); setStage(u?.pinSet ? "pin" : id ? "setup-email" : "select"); };
-  const doPin = () => { if ((user.pin || "") !== pin) { setErr("Incorrect PIN. Please try again."); setPin(""); return; } onLogin(user); };
-  const doEmail = () => { if (!user.email) { setErr("No email on file. Contact your supervisor."); return; } if (email.trim().toLowerCase() !== user.email.trim().toLowerCase()) { setErr("Email does not match records. Contact your supervisor."); return; } setErr(""); setStage("setup-pin"); };
-  const doPin2 = () => { if (np.length < 4) { setErr("PIN must be at least 4 digits."); return; } if (np !== cp) { setErr("PINs do not match."); return; } const u = { ...user, pin: np, pinSet: true }; onUpdateUser(u); onLogin(u); };
+function BrandMark({ className }) {
+  return <img src={o2hLogo} alt="o2h technology" className={cn("object-contain", className)} />;
+}
+
+// The role picked here is checked against the role stored on the account
+// (App verifies it once the profile loads and signs out on a mismatch).
+function LoginScreen({ onSignInAs, roleError }) {
+  const [stage, setStage] = useState("signin"); // signin | forgot | forgot-sent
+  const [role, setRole] = useState("reportee");
+  const [email, setEmail] = useState(""); const [password, setPassword] = useState("");
+  const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
+  const shownErr = err || roleError;
+
+  const doSignIn = async () => {
+    setErr(""); setBusy(true);
+    onSignInAs(role);
+    try { await api.signIn(email.trim(), password); }
+    catch (e) { onSignInAs(null); setErr(e.message === "Invalid login credentials" ? "Incorrect email or password." : e.message || "Sign-in failed."); }
+    setBusy(false);
+  };
+  const doForgot = async () => {
+    setErr(""); setBusy(true);
+    try { await api.requestPasswordReset(email.trim()); setStage("forgot-sent"); }
+    catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-5 bg-gradient-to-br from-indigo-50 via-slate-50 to-emerald-50">
+    <div className="min-h-screen flex items-center justify-center p-5 bg-gradient-to-br from-indigo-50 via-background to-indigo-100">
       <Card className="w-full max-w-sm shadow-xl border-border/60">
         <CardContent className="p-8">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-[44px] h-[44px] shrink-0 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center shadow-sm">
-              <Target className="w-[22px] h-[22px] text-white" />
-            </div>
-            <div>
-              <div className="text-lg font-bold tracking-tight">TrainTrack</div>
-              <div className="text-xs text-muted-foreground">Team learning, made accountable.</div>
-            </div>
+          <div className="flex flex-col items-center text-center mb-6">
+            <BrandMark className="h-14 mb-3" />
+            <div className="text-lg font-bold tracking-tight">TrainTrack</div>
+            <div className="text-xs text-muted-foreground">BAPM team learning, made accountable.</div>
           </div>
 
-          <div className="space-y-1.5 mb-4">
-            <Label>Select your profile <span className="text-rose-500">*</span></Label>
-            <Select value={userId} onValueChange={sel}>
-              <SelectTrigger><SelectValue placeholder="— Choose —" /></SelectTrigger>
-              <SelectContent>
-                {users.map(u => <SelectItem key={u.id} value={u.id}>{u.name}{u.role === "supervisor" ? " 👑" : ""}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {stage === "pin" && (
+          {stage === "signin" && (
             <div className="space-y-3">
               <div className="space-y-1.5">
-                <Label>PIN <span className="text-rose-500">*</span></Label>
-                <Input type="password" maxLength={8} value={pin} onChange={e => { setPin(e.target.value); setErr(""); }} onKeyDown={e => e.key === "Enter" && doPin()} placeholder="Enter your PIN" className="tracking-[0.3em]" />
+                <Label>Sign in as</Label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {Object.entries(ROLE_LABELS).map(([r, label]) => (
+                    <button key={r} type="button" onClick={() => { setRole(r); setErr(""); }}
+                      className={cn("rounded-lg border px-2 py-2 text-[12px] font-semibold leading-tight transition",
+                        role === r ? "border-indigo-400 bg-indigo-50 text-indigo-700" : "bg-card text-muted-foreground hover:border-muted-foreground/40")}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
-              <Button className="w-full" disabled={!pin} onClick={doPin}>Continue →</Button>
-              <p className="text-center text-[11px] text-muted-foreground">Forgot your PIN? Ask your supervisor to reset it.</p>
+              <div className="space-y-1.5">
+                <Label>Email <span className="text-rose-500">*</span></Label>
+                <Input type="email" value={email} onChange={e => { setEmail(e.target.value); setErr(""); }} placeholder="name@company.com" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Password <span className="text-rose-500">*</span></Label>
+                <Input type="password" value={password} onChange={e => { setPassword(e.target.value); setErr(""); }} onKeyDown={e => e.key === "Enter" && doSignIn()} placeholder="Your password" />
+              </div>
+              {shownErr && <p className="text-sm text-rose-600">⚠ {shownErr}</p>}
+              <Button className="w-full" disabled={!email || !password || busy} onClick={doSignIn}>{busy ? "Signing in…" : "Sign In →"}</Button>
+              <button className="text-center text-[12px] text-indigo-700 hover:underline w-full" onClick={() => { setStage("forgot"); setErr(""); }}>Forgot your password?</button>
             </div>
           )}
-          {stage === "setup-email" && (
+          {stage === "forgot" && (
             <div className="space-y-3">
-              <div className="rounded-lg bg-indigo-50 border border-indigo-200 px-3.5 py-2.5 text-[12.5px] text-indigo-700">👋 First time here? Verify your email to set up a personal PIN.</div>
               <div className="space-y-1.5">
-                <Label>Your registered email <span className="text-rose-500">*</span></Label>
-                <Input type="email" value={email} onChange={e => { setEmail(e.target.value); setErr(""); }} onKeyDown={e => e.key === "Enter" && doEmail()} placeholder="name@company.com" />
+                <Label>Registered email <span className="text-rose-500">*</span></Label>
+                <Input type="email" value={email} onChange={e => { setEmail(e.target.value); setErr(""); }} onKeyDown={e => e.key === "Enter" && doForgot()} placeholder="name@company.com" />
               </div>
               {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
-              <Button className="w-full" disabled={!email} onClick={doEmail}>Verify →</Button>
+              <Button className="w-full" disabled={!email || busy} onClick={doForgot}>{busy ? "Sending…" : "Send reset link"}</Button>
+              <button className="text-center text-[12px] text-muted-foreground hover:underline w-full" onClick={() => setStage("signin")}>Back to sign in</button>
             </div>
           )}
-          {stage === "setup-pin" && (
+          {stage === "forgot-sent" && (
             <div className="space-y-3">
-              <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3.5 py-2.5 text-[12.5px] text-emerald-700">✅ Email verified! Create a personal PIN — only you will know it.</div>
-              <div className="space-y-1.5">
-                <Label>Create PIN (min 4 digits) <span className="text-rose-500">*</span></Label>
-                <Input type="password" maxLength={8} value={np} onChange={e => { setNp(e.target.value); setErr(""); }} placeholder="e.g. 4821" className="tracking-[0.3em]" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Confirm PIN <span className="text-rose-500">*</span></Label>
-                <Input type="password" maxLength={8} value={cp} onChange={e => { setCp(e.target.value); setErr(""); }} onKeyDown={e => e.key === "Enter" && doPin2()} placeholder="Re-enter PIN" className="tracking-[0.3em]" />
-              </div>
-              {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
-              <Button className="w-full" disabled={!np || !cp} onClick={doPin2}>Set PIN & Continue →</Button>
+              <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3.5 py-2.5 text-[12.5px] text-emerald-700">✅ Check your email for a password reset link.</div>
+              <Button variant="outline" className="w-full" onClick={() => setStage("signin")}>Back to sign in</Button>
             </div>
-          )}
-          {stage === "select" && (
-            <p className="text-center text-[11px] text-muted-foreground leading-relaxed mt-1">Select your profile to continue.<br />First-time users verify email to set a personal PIN.</p>
           )}
         </CardContent>
       </Card>
@@ -393,16 +337,49 @@ function LoginScreen({ users, onLogin, onUpdateUser }) {
   );
 }
 
+// Shown when profiles.must_change_password is true (first login, or after a manager resets someone).
+function ForcePasswordChange({ onDone, onCancel, recovery }) {
+  const [np, setNp] = useState(""); const [cp, setCp] = useState(""); const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (np.length < 6) { setErr("Password must be at least 6 characters."); return; }
+    if (np !== cp) { setErr("Passwords do not match."); return; }
+    setBusy(true); setErr("");
+    try { await onDone(np); } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+  return (
+    <div className="min-h-screen flex items-center justify-center p-5 bg-gradient-to-br from-indigo-50 via-background to-indigo-100">
+      <Card className="w-full max-w-sm shadow-xl border-border/60">
+        <CardContent className="p-8 space-y-3">
+          <BrandMark className="h-10 mb-2" />
+          <div className="flex items-center gap-2 text-[15px] font-bold mb-2"><ShieldCheck className="h-4 w-4 text-indigo-600" />{recovery ? "Reset your password" : "Set your password"}</div>
+          <p className="text-[12.5px] text-muted-foreground mb-2">{recovery ? "Choose a new password for your account." : "Welcome to TrainTrack! Choose a password only you know — you'll use it with your email to sign in."}</p>
+          <div className="space-y-1.5"><Label>New password</Label><Input type="password" value={np} onChange={e => { setNp(e.target.value); setErr(""); }} /></div>
+          <div className="space-y-1.5"><Label>Confirm password</Label><Input type="password" value={cp} onChange={e => { setCp(e.target.value); setErr(""); }} onKeyDown={e => e.key === "Enter" && submit()} /></div>
+          {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
+          <Button className="w-full" disabled={busy} onClick={submit}>{busy ? "Saving…" : "Set password & continue"}</Button>
+          {onCancel && <button className="text-center text-[12px] text-muted-foreground hover:underline w-full" onClick={onCancel}>Cancel and sign out</button>}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 // ── SIDEBAR ───────────────────────────────────────────────────────────────────
-function Sidebar({ user, tab, setTab, onLogout, myDone, myTotal, trainings, currentFY }) {
-  const sup = user.role === "supervisor";
-  const overdue = trainings.filter(t => { const s = getEffStatus(t); return (s === "pending" || s === "in-progress") && isOverdue(t.dueDate); }).length;
-  const nav = sup ? [
+function Sidebar({ profile, tab, setTab, onLogout, myDone, myTotal, trainings, currentFY, pendingApprovalsCount }) {
+  const isManager = profile.role === "reporting_manager";
+  const isAdmin = profile.role === "admin";
+  const overdue = trainings.filter(t => isOpenStatus(getEffStatus(t)) && isOverdue(t.due_date)).length;
+  const nav = isAdmin ? [
+    { id: "users", icon: UserCog, label: "Users" },
+    { id: "catalog", icon: FolderOpen, label: "Training Catalog" },
+  ] : isManager ? [
     { id: "dashboard", icon: LayoutDashboard, label: "Dashboard" },
+    { id: "approvals", icon: Library, label: "Approvals", badge: pendingApprovalsCount || null },
+    { id: "catalog", icon: FolderOpen, label: "Training Catalog" },
     { id: "knowledge-hub", icon: Lightbulb, label: "Knowledge Hub" },
-    { id: "catalog", icon: Library, label: "Training Catalog" },
     { id: "reminders", icon: Bell, label: "Reminders", badge: overdue || null },
-    { id: "settings", icon: SettingsIcon, label: "Settings" },
+    { id: "settings", icon: SettingsIcon, label: "Team & Settings" },
   ] : [
     { id: "my-trainings", icon: BookOpen, label: "My Trainings", badge: `${myDone}/${myTotal}` },
     { id: "knowledge-hub", icon: Lightbulb, label: "Knowledge Hub" },
@@ -410,13 +387,11 @@ function Sidebar({ user, tab, setTab, onLogout, myDone, myTotal, trainings, curr
   return (
     <aside className="w-60 bg-card border-r flex flex-col p-3.5 shrink-0">
       <div className="flex items-center gap-2.5 px-2 pt-1">
-        <div className="w-8 h-8 shrink-0 rounded-lg bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center">
-          <Target className="w-4 h-4 text-white" />
-        </div>
+        <BrandMark className="h-9 w-14 shrink-0" />
         <span className="text-base font-bold tracking-tight">TrainTrack</span>
       </div>
-      <div className="px-2 pt-2 pb-4"><FYBadge fy={currentFY} /></div>
-      <nav className="flex-1 space-y-1">
+      {isManager && <div className="px-2 pt-2 pb-4"><FYBadge fy={currentFY} /></div>}
+      <nav className={cn("flex-1 space-y-1", !isManager && "mt-4")}>
         {nav.map(item => {
           const active = tab === item.id; const Icon = item.icon;
           return (
@@ -434,10 +409,10 @@ function Sidebar({ user, tab, setTab, onLogout, myDone, myTotal, trainings, curr
       </nav>
       <Separator className="my-3" />
       <div className="flex items-center gap-2.5 px-2 mb-2.5">
-        <UAvatar name={user.name} color={user.color} className="h-8 w-8" />
+        <UAvatar name={profile.full_name} color={profile.color} className="h-8 w-8" />
         <div className="min-w-0">
-          <div className="text-[13px] font-semibold truncate">{user.name.split(" ")[0]}</div>
-          <div className="text-[11px] text-muted-foreground capitalize">{user.role}</div>
+          <div className="text-[13px] font-semibold truncate">{profile.full_name.split(" ")[0]}</div>
+          <div className="text-[11px] text-muted-foreground">{ROLE_LABELS[profile.role]}</div>
         </div>
       </div>
       <Button variant="outline" size="sm" className="w-full" onClick={onLogout}><LogOut className="h-3.5 w-3.5 mr-1.5" />Logout</Button>
@@ -446,26 +421,25 @@ function Sidebar({ user, tab, setTab, onLogout, myDone, myTotal, trainings, curr
 }
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
-function Dashboard({ users, trainings, onAdd, onRefresh, refreshing, fyList, fyFilter, setFyFilter, onExport, onDetail }) {
-  const [drill, setDrill] = useState(null);      // stat-card drilldown
-  const [memberModal, setMemberModal] = useState(null); // full training list for a member
-  const members = users.filter(u => u.role === "member");
-  const fyT = trainings.filter(t => t.fy === fyFilter && getEffStatus(t) !== "discarded");
+function Dashboard({ reportees, trainings, onAdd, onBulk, onRefresh, refreshing, fyList, fyFilter, setFyFilter, onExport, onDetail }) {
+  const [drill, setDrill] = useState(null);
+  const [memberModal, setMemberModal] = useState(null);
+  const fyT = trainings.filter(t => t.fy === fyFilter && t.status !== "discarded");
   const totalU = fyT.reduce((s, t) => s + getUnits(t).total, 0);
   const doneU = fyT.reduce((s, t) => s + getUnits(t).done, 0);
   const pct = totalU ? Math.round(doneU / totalU * 100) : 0;
-  const overdueList = fyT.filter(t => { const s = getEffStatus(t); return (s === "pending" || s === "in-progress") && isOverdue(t.dueDate); });
-  const stars = members.filter(u => getAchievement(u, fyT) === "star");
+  const overdueList = fyT.filter(t => isOpenStatus(getEffStatus(t)) && isOverdue(t.due_date));
+  const stars = reportees.filter(u => getAchievement(u, fyT) === "star");
 
   const stats = [
-    { key: "members", label: "Team Members", value: members.length, note: "active", Icon: Users, tint: "bg-indigo-50 text-indigo-600" },
+    { key: "members", label: "Team Members", value: reportees.length, note: "active", Icon: Users, tint: "bg-indigo-50 text-indigo-600" },
     { key: "units", label: "Training Units", value: totalU, note: `${fyT.length} trainings`, Icon: Package, tint: "bg-emerald-50 text-emerald-600" },
     { key: "completion", label: "Completion", value: `${pct}%`, note: `${doneU}/${totalU} units`, Icon: Target, tint: "bg-amber-50 text-amber-600" },
     { key: "overdue", label: "Overdue", value: overdueList.length, note: "need action", Icon: Clock, tint: overdueList.length ? "bg-rose-50 text-rose-600" : "bg-muted text-muted-foreground" },
   ];
 
-  const userName = id => (users.find(u => u.id === id) || {}).name || "Unknown";
-  const userColor = id => (users.find(u => u.id === id) || {}).color;
+  const userName = id => (reportees.find(u => u.id === id) || {}).full_name || "Unknown";
+  const userColor = id => (reportees.find(u => u.id === id) || {}).color;
 
   return (
     <div>
@@ -481,6 +455,7 @@ function Dashboard({ users, trainings, onAdd, onRefresh, refreshing, fyList, fyF
           </Select>
           <Button variant="outline" size="sm" onClick={onRefresh}><RefreshCw className={cn("h-4 w-4 mr-1.5", refreshing && "animate-spin")} />Refresh</Button>
           <Button variant="outline" size="sm" onClick={onExport}><Download className="h-4 w-4 mr-1.5" />Export</Button>
+          <Button variant="outline" size="sm" onClick={onBulk}><Users className="h-4 w-4 mr-1.5" />Bulk Assign</Button>
           <Button size="sm" onClick={onAdd}><Plus className="h-4 w-4 mr-1.5" />Assign Training</Button>
         </div>
       </div>
@@ -492,9 +467,9 @@ function Dashboard({ users, trainings, onAdd, onRefresh, refreshing, fyList, fyF
             <div className="flex flex-wrap gap-3">
               {stars.map(u => (
                 <div key={u.id} className="flex items-center gap-2.5 bg-card border border-amber-200 rounded-xl px-4 py-2.5">
-                  <UAvatar name={u.name} color={u.color} className="h-8 w-8" />
+                  <UAvatar name={u.full_name} color={u.color} className="h-8 w-8" />
                   <div>
-                    <div className="text-[13px] font-semibold">{u.name}</div>
+                    <div className="text-[13px] font-semibold">{u.full_name}</div>
                     <div className="text-[11px] text-amber-700">All trainings completed! 🎉</div>
                   </div>
                 </div>
@@ -524,28 +499,28 @@ function Dashboard({ users, trainings, onAdd, onRefresh, refreshing, fyList, fyF
       </div>
 
       <SectionLabel>Individual Progress — FY {fyFilter}</SectionLabel>
-      {members.length === 0 ? (
-        <Card className="border-dashed"><CardContent className="p-11 text-center text-sm text-muted-foreground">No team members yet. Add them in Settings.</CardContent></Card>
+      {reportees.length === 0 ? (
+        <Card className="border-dashed"><CardContent className="p-11 text-center text-sm text-muted-foreground">No reportees yet. Add them in Settings.</CardContent></Card>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
-          {members.map(u => {
-            const ut = fyT.filter(t => t.userId === u.id);
+          {reportees.map(u => {
+            const ut = fyT.filter(t => t.assigned_to === u.id);
             const totalUU = ut.reduce((s, t) => s + getUnits(t).total, 0);
             const doneUU = ut.reduce((s, t) => s + getUnits(t).done, 0);
             const up = totalUU ? Math.round(doneUU / totalUU * 100) : 0;
             const tone = up >= 60 ? "text-emerald-600" : up >= 30 ? "text-amber-600" : "text-rose-600";
-            const pending = ut.filter(t => { const s = getEffStatus(t); return s === "pending" || s === "in-progress"; });
-            const done = ut.filter(t => getEffStatus(t) === "completed");
-            const od = pending.filter(t => isOverdue(t.dueDate));
+            const pending = ut.filter(t => isOpenStatus(getEffStatus(t)));
+            const done = ut.filter(t => getEffStatus(t) === "approved");
+            const od = pending.filter(t => isOverdue(t.due_date));
             const ach = getAchievement(u, fyT);
             return (
               <Card key={u.id} className="hover:shadow-md transition-shadow">
                 <CardContent className="p-5">
                   <div className="flex items-center gap-3 mb-3">
-                    <UAvatar name={u.name} color={u.color} className="h-10 w-10" />
+                    <UAvatar name={u.full_name} color={u.color} className="h-10 w-10" />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-[14.5px] truncate">{u.name}</span>
+                        <span className="font-semibold text-[14.5px] truncate">{u.full_name}</span>
                         {ach && <AchBadge level={ach} />}
                       </div>
                       <div className="text-xs text-muted-foreground mt-0.5">{doneUU}/{totalUU} units done</div>
@@ -554,7 +529,6 @@ function Dashboard({ users, trainings, onAdd, onRefresh, refreshing, fyList, fyF
                   </div>
                   <Progress value={up} className="h-2 mb-3" />
 
-                  {/* Summary chips — scale cleanly no matter how many trainings */}
                   {ut.length === 0 ? (
                     <p className="text-xs text-muted-foreground italic">No trainings assigned for this FY.</p>
                   ) : (
@@ -565,8 +539,8 @@ function Dashboard({ users, trainings, onAdd, onRefresh, refreshing, fyList, fyF
                         {od.length > 0 && <span className="text-[11px] font-medium text-rose-700 bg-rose-50 border border-rose-200 rounded-full px-2 py-0.5">{od.length} overdue</span>}
                       </div>
                       {pending.slice(0, 2).map(t => (
-                        <div key={t.id} className={cn("text-[12.5px] flex items-center gap-1.5 mb-1", isOverdue(t.dueDate) ? "text-rose-600" : "text-muted-foreground")}>
-                          <span className="text-[8px]">●</span><span className="truncate">{t.title}</span>
+                        <div key={t.id} className={cn("text-[12.5px] flex items-center gap-1.5 mb-1", isOverdue(t.due_date) ? "text-rose-600" : "text-muted-foreground")}>
+                          <span className="text-[8px]">●</span><span className="truncate">{t.name}</span>
                           {partsLabel(t) && <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-1.5 py-px rounded-full shrink-0">{partsLabel(t)}</span>}
                         </div>
                       ))}
@@ -583,7 +557,6 @@ function Dashboard({ users, trainings, onAdd, onRefresh, refreshing, fyList, fyF
         </div>
       )}
 
-
       <SectionLabel>Year-wise Summary</SectionLabel>
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
@@ -595,16 +568,16 @@ function Dashboard({ users, trainings, onAdd, onRefresh, refreshing, fyList, fyF
               </tr>
             </thead>
             <tbody>
-              {members.map(u => (
+              {reportees.map(u => (
                 <tr key={u.id} className="border-b last:border-0">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2.5">
-                      <UAvatar name={u.name} color={u.color} className="h-6 w-6" />
-                      <span className="font-medium">{u.name}</span>
+                      <UAvatar name={u.full_name} color={u.color} className="h-6 w-6" />
+                      <span className="font-medium">{u.full_name}</span>
                     </div>
                   </td>
                   {fyList.map(fy => {
-                    const utt = trainings.filter(t => t.userId === u.id && t.fy === fy);
+                    const utt = trainings.filter(t => t.assigned_to === u.id && t.fy === fy);
                     const tU = utt.reduce((s, t) => s + getUnits(t).total, 0);
                     const dU = utt.reduce((s, t) => s + getUnits(t).done, 0);
                     if (!tU) return <td key={fy} className="text-center px-3 py-3 text-muted-foreground/40">—</td>;
@@ -612,45 +585,41 @@ function Dashboard({ users, trainings, onAdd, onRefresh, refreshing, fyList, fyF
                   })}
                 </tr>
               ))}
-              {members.length === 0 && <tr><td colSpan={fyList.length + 1} className="text-center text-muted-foreground py-6">No members yet.</td></tr>}
+              {reportees.length === 0 && <tr><td colSpan={fyList.length + 1} className="text-center text-muted-foreground py-6">No reportees yet.</td></tr>}
             </tbody>
           </table>
         </div>
       </Card>
 
-      {/* Stat-card drilldown */}
       <DashboardDrill
         which={drill} onClose={() => setDrill(null)} fyFilter={fyFilter}
-        members={members} fyT={fyT} overdueList={overdueList}
+        members={reportees} fyT={fyT} overdueList={overdueList}
         userName={userName} userColor={userColor} onDetail={onDetail}
       />
-
-      {/* Full training list for one member */}
       <MemberTrainingsModal
         member={memberModal} onClose={() => setMemberModal(null)} fyFilter={fyFilter}
-        trainings={fyT.filter(t => memberModal && t.userId === memberModal.id)}
+        trainings={fyT.filter(t => memberModal && t.assigned_to === memberModal.id)}
         onDetail={onDetail}
       />
     </div>
   );
 }
 
-// Row used inside dashboard modals
 function TrainingMiniRow({ t, who, whoColor, onDetail }) {
   const status = getEffStatus(t);
-  const StatusIcon = status === "completed" ? Check : status === "in-progress" ? CircleDot : Circle;
+  const StatusIcon = status === "approved" ? Check : status === "in_progress" ? CircleDot : Circle;
   return (
     <button onClick={() => onDetail && onDetail(t, null)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted transition text-left">
-      <StatusIcon className={cn("h-4 w-4 shrink-0", status === "completed" ? "text-emerald-600" : status === "in-progress" ? "text-indigo-600" : "text-muted-foreground")} />
+      <StatusIcon className={cn("h-4 w-4 shrink-0", status === "approved" ? "text-emerald-600" : status === "in_progress" ? "text-indigo-600" : "text-muted-foreground")} />
       <div className="flex-1 min-w-0">
-        <div className="text-[13px] font-medium truncate">{t.title}</div>
+        <div className="text-[13px] font-medium truncate">{t.name}</div>
         <div className="text-[11px] text-muted-foreground flex items-center gap-2">
           {who && <span className="flex items-center gap-1"><UAvatar name={who} color={whoColor} className="h-3.5 w-3.5" />{who}</span>}
-          {t.dueDate && <span className={cn(isOverdue(t.dueDate) && status !== "completed" && "text-rose-600")}>Due {fmtDate(t.dueDate)}</span>}
+          {t.due_date && <span className={cn(isOverdue(t.due_date) && status !== "approved" && "text-rose-600")}>Due {fmtDate(t.due_date)}</span>}
         </div>
       </div>
       {partsLabel(t) && <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0">{partsLabel(t)}</span>}
-      <StatusBadge status={status} dueDate={t.dueDate} />
+      <StatusBadge status={status} dueDate={t.due_date} />
     </button>
   );
 }
@@ -669,35 +638,35 @@ function DashboardDrill({ which, onClose, fyFilter, members, fyT, overdueList, u
         {which === "members" && (
           <div className="space-y-1">
             {members.map(u => {
-              const ut = fyT.filter(t => t.userId === u.id);
+              const ut = fyT.filter(t => t.assigned_to === u.id);
               const tot = ut.reduce((s, t) => s + getUnits(t).total, 0);
               const dn = ut.reduce((s, t) => s + getUnits(t).done, 0);
               const up = tot ? Math.round(dn / tot * 100) : 0;
               return (
                 <div key={u.id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted transition">
-                  <UAvatar name={u.name} color={u.color} className="h-8 w-8" />
-                  <div className="flex-1 min-w-0"><div className="text-[13px] font-medium">{u.name}</div><div className="text-[11px] text-muted-foreground">{u.email || "no email"}</div></div>
+                  <UAvatar name={u.full_name} color={u.color} className="h-8 w-8" />
+                  <div className="flex-1 min-w-0"><div className="text-[13px] font-medium">{u.full_name}</div><div className="text-[11px] text-muted-foreground">{u.email || "no email"}</div></div>
                   <div className="w-24"><Progress value={up} className="h-1.5" /></div>
                   <span className="text-[12px] font-semibold w-9 text-right">{up}%</span>
                 </div>
               );
             })}
-            {members.length === 0 && <p className="text-sm text-muted-foreground text-center py-6">No members yet.</p>}
+            {members.length === 0 && <p className="text-sm text-muted-foreground text-center py-6">No reportees yet.</p>}
           </div>
         )}
 
         {which === "completion" && (
           <div className="space-y-1">
             {members.map(u => {
-              const ut = fyT.filter(t => t.userId === u.id);
+              const ut = fyT.filter(t => t.assigned_to === u.id);
               const tot = ut.reduce((s, t) => s + getUnits(t).total, 0);
               const dn = ut.reduce((s, t) => s + getUnits(t).done, 0);
               const up = tot ? Math.round(dn / tot * 100) : 0;
               const tone = up >= 60 ? "text-emerald-600" : up >= 30 ? "text-amber-600" : "text-rose-600";
               return (
                 <div key={u.id} className="flex items-center gap-3 px-3 py-2.5">
-                  <UAvatar name={u.name} color={u.color} className="h-8 w-8" />
-                  <div className="flex-1 min-w-0"><div className="text-[13px] font-medium">{u.name}</div><Progress value={up} className="h-1.5 mt-1" /></div>
+                  <UAvatar name={u.full_name} color={u.color} className="h-8 w-8" />
+                  <div className="flex-1 min-w-0"><div className="text-[13px] font-medium">{u.full_name}</div><Progress value={up} className="h-1.5 mt-1" /></div>
                   <span className="text-[11px] text-muted-foreground w-16 text-right">{dn}/{tot} units</span>
                   <span className={cn("text-[13px] font-bold w-10 text-right", tone)}>{up}%</span>
                 </div>
@@ -709,14 +678,14 @@ function DashboardDrill({ which, onClose, fyFilter, members, fyT, overdueList, u
         {which === "units" && (
           <div className="space-y-1">
             {fyT.length === 0 ? <p className="text-sm text-muted-foreground text-center py-6">No trainings this FY.</p>
-              : fyT.map(t => <TrainingMiniRow key={t.id} t={t} who={userName(t.userId)} whoColor={userColor(t.userId)} onDetail={onDetail} />)}
+              : fyT.map(t => <TrainingMiniRow key={t.id} t={t} who={userName(t.assigned_to)} whoColor={userColor(t.assigned_to)} onDetail={onDetail} />)}
           </div>
         )}
 
         {which === "overdue" && (
           <div className="space-y-1">
             {overdueList.length === 0 ? <p className="text-sm text-emerald-600 text-center py-6 font-medium">🎉 Nothing overdue. Great going!</p>
-              : overdueList.map(t => <TrainingMiniRow key={t.id} t={t} who={userName(t.userId)} whoColor={userColor(t.userId)} onDetail={onDetail} />)}
+              : overdueList.map(t => <TrainingMiniRow key={t.id} t={t} who={userName(t.assigned_to)} whoColor={userColor(t.assigned_to)} onDetail={onDetail} />)}
           </div>
         )}
 
@@ -729,18 +698,18 @@ function DashboardDrill({ which, onClose, fyFilter, members, fyT, overdueList, u
 function MemberTrainingsModal({ member, onClose, fyFilter, trainings, onDetail }) {
   if (!member) return null;
   const groups = [
-    ["Overdue", trainings.filter(t => { const s = getEffStatus(t); return (s === "pending" || s === "in-progress") && isOverdue(t.dueDate); })],
-    ["In Progress", trainings.filter(t => getEffStatus(t) === "in-progress" && !isOverdue(t.dueDate))],
-    ["Pending", trainings.filter(t => getEffStatus(t) === "pending" && !isOverdue(t.dueDate))],
-    ["Completed", trainings.filter(t => getEffStatus(t) === "completed")],
+    ["Overdue", trainings.filter(t => isOpenStatus(getEffStatus(t)) && isOverdue(t.due_date))],
+    ["In Progress", trainings.filter(t => getEffStatus(t) === "in_progress" && !isOverdue(t.due_date))],
+    ["Pending", trainings.filter(t => getEffStatus(t) === "pending" && !isOverdue(t.due_date))],
+    ["Completed", trainings.filter(t => getEffStatus(t) === "approved")],
   ].filter(([, arr]) => arr.length);
   return (
     <Dialog open onOpenChange={o => !o && onClose()}>
       <ModalContent size="lg">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <UAvatar name={member.name} color={member.color} className="h-9 w-9" />
-            <div><DialogTitle>{member.name}</DialogTitle><DialogDescription>All trainings — FY {fyFilter}</DialogDescription></div>
+            <UAvatar name={member.full_name} color={member.color} className="h-9 w-9" />
+            <div><DialogTitle>{member.full_name}</DialogTitle><DialogDescription>All trainings — FY {fyFilter}</DialogDescription></div>
           </div>
         </DialogHeader>
         {trainings.length === 0 ? <p className="text-sm text-muted-foreground text-center py-6">No trainings assigned this FY.</p>
@@ -755,8 +724,13 @@ function MemberTrainingsModal({ member, onClose, fyFilter, trainings, onDetail }
     </Dialog>
   );
 }
-function MyTrainings({ trainings, onComplete, onDetail, fyList, fyFilter, setFyFilter }) {
+
+// ── MY TRAININGS (reportee) ────────────────────────────────────────────────────
+function MyTrainings({ trainings, requests, onRequestApproval, onDetail, onStart, onProgress, fyList, fyFilter, setFyFilter }) {
   const [filter, setFilter] = useState("all");
+  const [busyId, setBusyId] = useState(null);
+  const [err, setErr] = useState("");
+  const run = async (id, fn) => { setBusyId(id); setErr(""); try { await fn(); } catch (e) { setErr(e.message); } setBusyId(null); };
   const [expanded, setExpanded] = useState(new Set());
   const toggle = id => setExpanded(p => { const s = new Set(p); s.has(id) ? s.delete(id) : s.add(id); return s; });
 
@@ -764,13 +738,13 @@ function MyTrainings({ trainings, onComplete, onDetail, fyList, fyFilter, setFyF
   const filtered = fyT.filter(t => {
     const s = getEffStatus(t);
     if (filter === "all") return s !== "discarded";
-    if (filter === "pending") return s === "pending";
-    if (filter === "in-progress") return s === "in-progress";
-    if (filter === "overdue") return (s === "pending" || s === "in-progress") && isOverdue(t.dueDate);
-    if (filter === "completed") return s === "completed";
+    if (filter === "pending") return s === "pending" || s === "sent_back";
+    if (filter === "in-progress") return s === "in_progress" || s === "submitted";
+    if (filter === "overdue") return isOpenStatus(s) && isOverdue(t.due_date);
+    if (filter === "completed") return s === "approved";
     return true;
   });
-  const activeT = fyT.filter(t => getEffStatus(t) !== "discarded");
+  const activeT = fyT.filter(t => t.status !== "discarded");
   const totalU = activeT.reduce((s, t) => s + getUnits(t).total, 0);
   const doneU = activeT.reduce((s, t) => s + getUnits(t).done, 0);
   const filters = [["all", "All"], ["pending", "Pending"], ["in-progress", "In Progress"], ["overdue", "Overdue"], ["completed", "Completed"]];
@@ -796,6 +770,7 @@ function MyTrainings({ trainings, onComplete, onDetail, fyList, fyFilter, setFyF
         ))}
       </div>
 
+      {err && <p className="text-sm text-rose-600 mb-3">⚠ {err}</p>}
       <Card className="overflow-hidden">
         {filtered.length === 0 ? (
           <div className="p-11 text-center text-sm text-muted-foreground">No trainings in this filter.</div>
@@ -803,55 +778,74 @@ function MyTrainings({ trainings, onComplete, onDetail, fyList, fyFilter, setFyF
           const status = getEffStatus(t);
           const { done: pd, total: pt } = getUnits(t);
           const isM = hasParts(t); const isE = expanded.has(t.id);
-          const overdueRow = (status === "pending" || status === "in-progress") && isOverdue(t.dueDate);
-          const StatusIcon = status === "completed" ? Check : status === "in-progress" ? CircleDot : Circle;
+          const overdueRow = isOpenStatus(status) && isOverdue(t.due_date);
+          const StatusIcon = status === "approved" ? Check : status === "in_progress" ? CircleDot : Circle;
+          const wholeReq = !isM ? reqFor(requests, t.id, null, "sent_back") : null;
           return (
             <div key={t.id} className={cn(i < filtered.length - 1 && "border-b")}>
               <div className={cn("flex items-center gap-3 px-5 py-3.5", overdueRow && "bg-rose-50/40")}>
-                <StatusIcon className={cn("h-5 w-5 shrink-0", status === "completed" ? "text-emerald-600" : status === "in-progress" ? "text-indigo-600" : "text-muted-foreground")} />
+                <StatusIcon className={cn("h-5 w-5 shrink-0", status === "approved" ? "text-emerald-600" : status === "in_progress" ? "text-indigo-600" : "text-muted-foreground")} />
                 <div className={cn("flex-1 min-w-0", isM && "cursor-pointer")} onClick={() => isM && toggle(t.id)}>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-sm">{t.title}</span>
-                    {t.carriedFromFy && <FYBadge fy={`↪ ${t.carriedFromFy}`} />}
+                    <span className="font-semibold text-sm">{t.name}</span>
+                    {t.carried_from_fy && <FYBadge fy={`↪ ${t.carried_from_fy}`} />}
                     {isM && <span className="bg-indigo-100 text-indigo-700 text-[11px] font-bold px-2 py-0.5 rounded-full">{pd}/{pt} Parts</span>}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1 flex gap-3 flex-wrap">
-                    {t.dueDate && <span className={cn(isOverdue(t.dueDate) && status !== "completed" && "text-rose-600")}><CalendarDays className="h-3 w-3 inline mr-0.5" />Due {fmtDate(t.dueDate)}</span>}
-                    {!isM && t.completedDate && <span>✓ {fmtDate(t.completedDate)}</span>}
+                    {t.due_date && <span className={cn(isOverdue(t.due_date) && status !== "approved" && "text-rose-600")}><CalendarDays className="h-3 w-3 inline mr-0.5" />Due {fmtDate(t.due_date)}</span>}
+                    {!isM && t.completed_date && <span>✓ {fmtDate(t.completed_date)}</span>}
                     {cleanLinks(t.resources).length > 0 && <span className="text-indigo-600">📎 {cleanLinks(t.resources).length} resource(s)</span>}
                     {isM && <span>{isE ? "▲ Collapse" : "▼ View parts"}</span>}
                   </div>
+                  {!isM && status === "sent_back" && wholeReq?.manager_remarks && (
+                    <div className="text-[12px] text-orange-700 bg-orange-50 border border-orange-200 rounded-md px-2.5 py-1.5 mt-2">↩ {wholeReq.manager_remarks}</div>
+                  )}
                   {isM && pt > 0 && (
                     <div className="flex items-center gap-2 mt-2">
                       <Progress value={Math.round(pd / pt * 100)} className="h-1.5 flex-1" />
                       <span className="text-[11px] text-muted-foreground shrink-0">{Math.round(pd / pt * 100)}%</span>
                     </div>
                   )}
+                  {!isM && (status === "in_progress" || status === "sent_back") && (
+                    <div className="flex items-center gap-2 mt-2" onClick={e => e.stopPropagation()}>
+                      <Progress value={t.progress_pct || 0} className="h-1.5 flex-1" />
+                      <Select value={String(t.progress_pct || 0)} onValueChange={v => run(t.id, () => onProgress(t.id, Number(v)))}>
+                        <SelectTrigger className="h-7 w-[92px] text-[11.5px]"><SelectValue /></SelectTrigger>
+                        <SelectContent>{PROGRESS_STEPS.map(p => <SelectItem key={p} value={String(p)}>{p}% done</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                  )}
                 </div>
-                <StatusBadge status={status} dueDate={t.dueDate} />
+                <StatusBadge status={status} dueDate={t.due_date} />
                 <Button variant="outline" size="sm" className="shrink-0" onClick={() => onDetail(t, null)}>Details</Button>
-                {!isM && status === "pending" && <Button size="sm" className="shrink-0" onClick={() => onComplete(t, null)}>Mark Done</Button>}
+                {status === "pending" && <Button size="sm" className="shrink-0" disabled={busyId === t.id} onClick={() => run(t.id, () => onStart(t.id))}><Play className="h-3.5 w-3.5 mr-1" />{busyId === t.id ? "Starting…" : "Start"}</Button>}
+                {!isM && (status === "in_progress" || status === "sent_back") && <Button size="sm" className="shrink-0" onClick={() => onRequestApproval(t, null)}>{status === "sent_back" ? "Resubmit" : "Mark as Done"}</Button>}
                 {isM && <Button variant="ghost" size="icon" className="shrink-0 text-muted-foreground" onClick={() => toggle(t.id)}>{isE ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}</Button>}
               </div>
               {isM && isE && (
                 <div className="bg-muted/40 border-t px-5 py-2 pl-14">
-                  {t.parts.map((part, pi) => {
-                    const plinks = cleanLinks(part.resources);
+                  {sortedParts(t).map((part, pi) => {
+                    const partReq = reqFor(requests, t.id, part.id, "sent_back");
                     return (
-                      <div key={part.id} className={cn("py-3", pi < t.parts.length - 1 && "border-b")}>
+                      <div key={part.id} className={cn("py-3", pi < sortedParts(t).length - 1 && "border-b")}>
                         <div className="flex items-center gap-3">
                           <PartDot n={pi + 1} status={part.status} />
                           <div className="flex-1 min-w-0">
-                            <div className={cn("text-[13.5px] font-medium", part.status === "completed" ? "text-muted-foreground line-through" : "")}>{part.title}</div>
-                            {part.completedDate && <div className="text-xs text-muted-foreground mt-0.5">✓ Completed {fmtDate(part.completedDate)}</div>}
+                            <div className={cn("text-[13.5px] font-medium", part.status === "approved" ? "text-muted-foreground line-through" : "")}>{part.title}</div>
+                            {part.completed_date && <div className="text-xs text-muted-foreground mt-0.5">✓ Completed {fmtDate(part.completed_date)}</div>}
+                            {part.status === "sent_back" && partReq?.manager_remarks && (
+                              <div className="text-[12px] text-orange-700 bg-orange-50 border border-orange-200 rounded-md px-2.5 py-1.5 mt-1.5">↩ {partReq.manager_remarks}</div>
+                            )}
                           </div>
-                          {part.status === "completed" && <Button variant="outline" size="sm" className="shrink-0" onClick={() => onDetail(t, part)}>View Notes</Button>}
-                          {part.status === "pending" && <Button size="sm" className="shrink-0" onClick={() => onComplete(t, part)}>Mark Done</Button>}
+                          <StatusBadge status={part.status} />
+                          {status !== "pending" && (part.status === "pending" || part.status === "sent_back") && <Button size="sm" className="shrink-0" onClick={() => onRequestApproval(t, part)}>{part.status === "sent_back" ? "Resubmit" : "Mark as Done"}</Button>}
+                          {part.status === "approved" && <Button variant="outline" size="sm" className="shrink-0" onClick={() => onDetail(t, part)}>View Notes</Button>}
                         </div>
-                        {plinks.length > 0 && part.status !== "completed" && <div className="mt-2 pl-9"><LinkChips links={plinks} /></div>}
+                        {part.part_link && part.status !== "approved" && <div className="mt-2 pl-9"><LinkChips links={[{ url: part.part_link, title: "Part material" }]} /></div>}
                       </div>
                     );
                   })}
+                  {status === "pending" && <div className="text-xs text-muted-foreground bg-card border rounded-lg px-3 py-1.5 my-2.5">Start this training to mark its parts as done.</div>}
                   {pd === pt && pt > 0 && <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5 my-2.5">🎉 All parts completed! This training is fully done.</div>}
                 </div>
               )}
@@ -864,53 +858,45 @@ function MyTrainings({ trainings, onComplete, onDetail, fyList, fyFilter, setFyF
 }
 
 // ── KNOWLEDGE HUB ─────────────────────────────────────────────────────────────
-function KnowledgeHub({ trainings, users, onDetail }) {
+function KnowledgeHub({ trainings, reportees, requests, onDetail }) {
   const [search, setSearch] = useState("");
   const [fyF, setFyF] = useState("all");
   const [openGroup, setOpenGroup] = useState(null);
-  const getUser = id => users.find(u => u.id === id) || { name: "Unknown", color: "#94a3b8" };
+  const getUser = id => reportees.find(u => u.id === id) || { full_name: "Unknown", color: "#94a3b8" };
 
-  // Only fully-completed trainings enter the repository.
-  const completed = trainings.filter(t => getEffStatus(t) === "completed");
+  const completed = trainings.filter(t => getEffStatus(t) === "approved");
   const fyPool = fyF === "all" ? completed : completed.filter(t => t.fy === fyF);
   const allFYs = [...new Set(completed.map(t => t.fy))].filter(Boolean).sort().reverse();
 
-  // Group by catalog training (catId), fall back to title when no catId.
   const groupsMap = {};
   fyPool.forEach(t => {
-    const key = t.catId || `title:${t.title.toLowerCase()}`;
-    if (!groupsMap[key]) groupsMap[key] = { key, title: t.title, entries: [] };
+    const key = `name:${t.name.toLowerCase()}`;
+    if (!groupsMap[key]) groupsMap[key] = { key, title: t.name, entries: [] };
     groupsMap[key].entries.push(t);
   });
   let groups = Object.values(groupsMap).map(g => {
-    // one contributor entry per (user) — latest completion of this training by that user
     const byUser = {};
     g.entries.forEach(t => {
-      const prev = byUser[t.userId];
-      if (!prev || (t.completedDate || "") > (prev.completedDate || "")) byUser[t.userId] = t;
+      const prev = byUser[t.assigned_to];
+      if (!prev || (t.completed_date || "") > (prev.completed_date || "")) byUser[t.assigned_to] = t;
     });
-    const contributors = Object.values(byUser).sort((a, b) => (b.completedDate || "").localeCompare(a.completedDate || ""));
-    const latest = contributors[0]?.completedDate || "";
+    const contributors = Object.values(byUser).sort((a, b) => (b.completed_date || "").localeCompare(a.completed_date || ""));
+    const latest = contributors[0]?.completed_date || "";
     return { ...g, contributors, latest };
   });
 
-  // Search across training name + any contributor's notes (incl. part notes)
+  const notePreview = t => {
+    if (hasParts(t)) { const fp = sortedParts(t).map(p => reqFor(requests, t.id, p.id, "approved")).find(r => r?.notes); return fp ? fp.notes : ""; }
+    return reqFor(requests, t.id, null, "approved")?.notes || "";
+  };
+
   const q = search.trim().toLowerCase();
   if (q) {
     groups = groups.filter(g =>
-      g.title.toLowerCase().includes(q) ||
-      g.contributors.some(t =>
-        (t.notes || "").toLowerCase().includes(q) ||
-        (hasParts(t) && t.parts.some(p => (p.notes || "").toLowerCase().includes(q)))
-      )
+      g.title.toLowerCase().includes(q) || g.contributors.some(t => notePreview(t).toLowerCase().includes(q))
     );
   }
   groups.sort((a, b) => (b.latest || "").localeCompare(a.latest || ""));
-
-  const notePreview = t => {
-    if (hasParts(t)) { const fp = t.parts.find(p => p.notes); return fp ? fp.notes : ""; }
-    return t.notes || "";
-  };
 
   return (
     <div>
@@ -960,8 +946,8 @@ function KnowledgeHub({ trainings, users, onDetail }) {
                   <div className="mt-auto pt-3 border-t flex items-center justify-between gap-2">
                     <div className="flex items-center">
                       <div className="flex -space-x-2">
-                        {shown.map(t => { const u = getUser(t.userId); return (
-                          <div key={t.id} className="ring-2 ring-white rounded-full"><UAvatar name={u.name} color={u.color} className="h-7 w-7" /></div>
+                        {shown.map(t => { const u = getUser(t.assigned_to); return (
+                          <div key={t.id} className="ring-2 ring-white rounded-full"><UAvatar name={u.full_name} color={u.color} className="h-7 w-7" /></div>
                         ); })}
                       </div>
                       {extra > 0 && <span className="ml-2 text-xs font-medium text-muted-foreground">+{extra}</span>}
@@ -975,15 +961,14 @@ function KnowledgeHub({ trainings, users, onDetail }) {
         </div>
       )}
 
-      <KnowledgeDetailModal group={openGroup} users={users} onClose={() => setOpenGroup(null)} />
+      <KnowledgeDetailModal group={openGroup} reportees={reportees} requests={requests} onClose={() => setOpenGroup(null)} />
     </div>
   );
 }
 
-// Repository detail — one training, every contributor's notes & references side by side.
-function KnowledgeDetailModal({ group, users, onClose }) {
+function KnowledgeDetailModal({ group, reportees, requests, onClose }) {
   if (!group) return null;
-  const getUser = id => users.find(u => u.id === id) || { name: "Unknown", color: "#94a3b8" };
+  const getUser = id => reportees.find(u => u.id === id) || { full_name: "Unknown", color: "#94a3b8" };
 
   return (
     <Dialog open onOpenChange={o => !o && onClose()}>
@@ -1000,42 +985,49 @@ function KnowledgeDetailModal({ group, users, onClose }) {
 
         <div className="space-y-4">
           {group.contributors.map(t => {
-            const u = getUser(t.userId);
+            const u = getUser(t.assigned_to);
             const isM = hasParts(t);
             const trainingRes = cleanLinks(t.resources);
             return (
               <div key={t.id} className="border rounded-xl overflow-hidden">
                 <div className="flex items-center gap-3 px-4 py-3 bg-muted/50 border-b">
-                  <UAvatar name={u.name} color={u.color} className="h-8 w-8" />
+                  <UAvatar name={u.full_name} color={u.color} className="h-8 w-8" />
                   <div className="flex-1 min-w-0">
-                    <div className="text-[13px] font-semibold">{u.name}</div>
-                    <div className="text-[11px] text-muted-foreground">Completed {fmtDate(t.completedDate)} · FY {t.fy}</div>
+                    <div className="text-[13px] font-semibold">{u.full_name}</div>
+                    <div className="text-[11px] text-muted-foreground">Completed {fmtDate(t.completed_date)} · FY {t.fy}</div>
                   </div>
-                  {isM && <Badge variant="outline" className="text-indigo-700 bg-indigo-50 border-indigo-200 font-medium shrink-0">{t.parts.length} parts</Badge>}
+                  {isM && <Badge variant="outline" className="text-indigo-700 bg-indigo-50 border-indigo-200 font-medium shrink-0">{t.training_parts.length} parts</Badge>}
                 </div>
 
                 <div className="p-4 space-y-3">
                   {isM ? (
-                    t.parts.map((p, pi) => {
-                      const oc = cleanLinks(p.outcomes);
+                    sortedParts(t).map((p, pi) => {
+                      const r = reqFor(requests, t.id, p.id, "approved");
+                      const oc = cleanLinks(r?.outcome_links);
                       return (
                         <div key={p.id} className="pl-3 border-l-2 border-indigo-200">
                           <div className="text-[12px] font-semibold text-indigo-700 mb-1">Part {pi + 1}: {p.title}</div>
-                          {p.notes ? <p className="text-[13px] text-foreground/90 leading-relaxed whitespace-pre-wrap mb-2">{p.notes}</p> : <p className="text-[12.5px] text-muted-foreground italic mb-2">No notes.</p>}
+                          {r?.notes ? <p className="text-[13px] text-foreground/90 leading-relaxed whitespace-pre-wrap mb-2">{r.notes}</p> : <p className="text-[12.5px] text-muted-foreground italic mb-2">No notes.</p>}
                           {oc.length > 0 && <div className="mb-1"><LinkChips links={oc} /></div>}
                         </div>
                       );
                     })
                   ) : (
-                    <>
-                      {t.notes ? <p className="text-[13px] text-foreground/90 leading-relaxed whitespace-pre-wrap">{t.notes}</p> : <p className="text-[12.5px] text-muted-foreground italic">No notes added.</p>}
-                      {cleanLinks(t.outcomes).length > 0 && (
-                        <div>
-                          <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">📎 Outcome references</div>
-                          {cleanLinks(t.outcomes).map((l, i) => <LinkRow key={i} link={l} theme="indigo" />)}
-                        </div>
-                      )}
-                    </>
+                    (() => {
+                      const r = reqFor(requests, t.id, null, "approved");
+                      const oc = cleanLinks(r?.outcome_links);
+                      return (
+                        <>
+                          {r?.notes ? <p className="text-[13px] text-foreground/90 leading-relaxed whitespace-pre-wrap">{r.notes}</p> : <p className="text-[12.5px] text-muted-foreground italic">No notes added.</p>}
+                          {oc.length > 0 && (
+                            <div>
+                              <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">📎 Outcome references</div>
+                              {oc.map((l, i) => <LinkRow key={i} link={l} theme="indigo" />)}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()
                   )}
 
                   {trainingRes.length > 0 && (
@@ -1057,14 +1049,16 @@ function KnowledgeDetailModal({ group, users, onClose }) {
 }
 
 // ── DETAIL MODAL ──────────────────────────────────────────────────────────────
-function DetailModal({ training, users, onClose }) {
-  const u = users.find(x => x.id === training.userId) || { name: "Unknown", color: "#94a3b8" };
+function DetailModal({ training, part: focusPart, reportees, requests, onClose, onEdit, onDelete }) {
+  const [confirmDel, setConfirmDel] = useState(false);
+  const u = reportees.find(x => x.id === training.assigned_to) || { full_name: "Unknown", color: "#94a3b8" };
   const isM = hasParts(training); const status = getEffStatus(training);
   const resources = cleanLinks(training.resources);
+  const category = training.training_categories;
 
   const PartSec = ({ part, n }) => {
-    const oc = cleanLinks(part.outcomes);
-    const ref = cleanLinks(part.resources);
+    const r = reqFor(requests, training.id, part.id, "approved");
+    const oc = cleanLinks(r?.outcome_links);
     return (
       <div className="bg-muted/50 border rounded-xl p-4 mb-2.5">
         <div className="flex items-center gap-2.5 mb-2.5">
@@ -1072,16 +1066,17 @@ function DetailModal({ training, users, onClose }) {
           <div className="flex-1 font-semibold text-sm">{part.title}</div>
           <StatusBadge status={part.status} />
         </div>
-        {ref.length > 0 && (
+        {part.part_link && (
           <div className="mb-3">
             <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">📌 Reference material for this part:</div>
-            {ref.map((l, i) => <LinkRow key={i} link={l} theme="amber" />)}
+            <LinkRow link={{ url: part.part_link, title: "Part material" }} theme="amber" />
           </div>
         )}
-        {part.status === "completed" ? (
+        {part.status === "approved" ? (
           <>
-            <div className="text-xs text-muted-foreground mb-2">✓ Completed {fmtDate(part.completedDate)}</div>
-            {part.notes && <div className="text-[13px] leading-relaxed mb-2.5 whitespace-pre-wrap bg-card rounded-lg p-3 border">{part.notes}</div>}
+            <div className="text-xs text-muted-foreground mb-2">✓ Completed {fmtDate(part.completed_date)}</div>
+            {r?.notes && <div className="text-[13px] leading-relaxed mb-2.5 whitespace-pre-wrap bg-card rounded-lg p-3 border">{r.notes}</div>}
+            {r?.manager_remarks && <div className="text-[12.5px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 mb-2.5"><strong>Manager's remarks:</strong> {r.manager_remarks}</div>}
             {oc.length > 0 && <><div className="text-[11px] font-semibold text-muted-foreground mb-1.5">📎 Outcome references:</div>{oc.map((l, i) => <LinkRow key={i} link={l} theme="indigo" />)}</>}
           </>
         ) : (
@@ -1091,384 +1086,769 @@ function DetailModal({ training, users, onClose }) {
     );
   };
 
+  const wholeReq = !isM ? reqFor(requests, training.id, null, "approved") : null;
+
   return (
     <Dialog open onOpenChange={o => !o && onClose()}>
       <ModalContent size="xl">
         <DialogHeader>
-          <div className="flex items-center gap-2 text-[11px] font-bold text-indigo-700 uppercase tracking-wider mb-1">
+          <div className="flex items-center gap-2 text-[11px] font-bold text-indigo-700 uppercase tracking-wider mb-1 flex-wrap">
             Training Detail <FYBadge fy={training.fy} />
-            {isM && <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-2 py-0.5 rounded-full normal-case tracking-normal">{training.parts.length} Parts</span>}
+            {category && <span className="bg-muted text-muted-foreground text-[10px] font-bold px-2 py-0.5 rounded-full normal-case tracking-normal">{category.group_name} · {category.name}</span>}
+            {isM && <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-2 py-0.5 rounded-full normal-case tracking-normal">{training.training_parts.length} Parts</span>}
           </div>
-          <DialogTitle className="text-lg leading-snug">{training.title}</DialogTitle>
+          <DialogTitle className="text-lg leading-snug">{training.name}</DialogTitle>
         </DialogHeader>
 
         <div className="flex items-center gap-3 p-3.5 bg-muted/50 rounded-xl border">
-          <UAvatar name={u.name} color={u.color} className="h-10 w-10" />
+          <UAvatar name={u.full_name} color={u.color} className="h-10 w-10" />
           <div className="flex-1">
-            <div className="text-[13.5px] font-semibold">{u.name}</div>
-            <div className="text-xs text-muted-foreground">{status === "completed" ? `Completed ${fmtDate(training.completedDate)}` : training.dueDate ? `Due ${fmtDate(training.dueDate)}` : "No due date"}</div>
+            <div className="text-[13.5px] font-semibold">{u.full_name}</div>
+            <div className="text-xs text-muted-foreground">{status === "approved" ? `Completed ${fmtDate(training.completed_date)}` : training.due_date ? `Due ${fmtDate(training.due_date)}` : "No due date"}</div>
+            <div className="text-xs text-muted-foreground mt-0.5 capitalize">{MODE_OPTIONS.find(m => m.value === training.mode)?.label || training.mode}{training.trainer ? ` · Trainer: ${training.trainer}` : ""} · Priority: {training.priority}</div>
+            {training.expected_end_date && <div className="text-xs text-muted-foreground mt-0.5">Expected end: {fmtDate(training.expected_end_date)}</div>}
             {isM && <Progress value={Math.round(getUnits(training).done / getUnits(training).total * 100)} className="h-1.5 mt-2" />}
+            {!isM && (status === "in_progress" || status === "sent_back") && <div className="flex items-center gap-2 mt-2"><Progress value={training.progress_pct || 0} className="h-1.5 flex-1" /><span className="text-[11px] text-muted-foreground">{training.progress_pct || 0}%</span></div>}
           </div>
-          <StatusBadge status={status} dueDate={training.dueDate} />
+          <StatusBadge status={status} dueDate={training.due_date} />
         </div>
 
+        <div>
+          <div className="text-[13px] font-bold mb-2.5">📌 Training Material</div>
+          <LinkRow link={{ url: training.training_link, title: "Training material" }} theme="amber" />
+        </div>
         {resources.length > 0 && (
           <div>
-            <div className="text-[13px] font-bold mb-2.5">📌 Reference Material (whole training)</div>
+            <div className="text-[13px] font-bold mb-2.5">📎 Additional Reference Material</div>
             {resources.map((l, i) => <LinkRow key={i} link={l} theme="amber" />)}
+          </div>
+        )}
+
+        {!isM && wholeReq?.manager_remarks && (
+          <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3.5 py-2.5 text-[12.5px] text-emerald-800">
+            <strong>Manager's remarks:</strong> {wholeReq.manager_remarks}
           </div>
         )}
 
         {isM ? (
           <div>
             <div className="text-[13px] font-bold mb-3">📋 Parts & Learnings</div>
-            {training.parts.map((part, pi) => <PartSec key={part.id} part={part} n={pi + 1} />)}
+            {sortedParts(training).map((part, pi) => <PartSec key={part.id} part={part} n={pi + 1} />)}
           </div>
         ) : (
           <>
             <div>
               <div className="text-[13px] font-bold mb-2.5">📝 Key Learnings & Outcome Notes</div>
               <div className="bg-muted/50 rounded-xl p-4 text-sm leading-relaxed border whitespace-pre-wrap min-h-[60px]">
-                {training.notes || <span className="text-muted-foreground italic">{status === "completed" ? "No notes added." : "Not completed yet."}</span>}
+                {wholeReq?.notes || <span className="text-muted-foreground italic">{status === "approved" ? "No notes added." : "Not completed yet."}</span>}
               </div>
             </div>
             <div>
               <div className="text-[13px] font-bold mb-2.5">📎 Outcome Reference Material</div>
-              {cleanLinks(training.outcomes).length > 0
-                ? cleanLinks(training.outcomes).map((l, i) => <LinkRow key={i} link={l} theme="indigo" />)
-                : <div className="p-3.5 bg-muted/50 rounded-xl border border-dashed text-[13px] text-muted-foreground italic">{status === "completed" ? "No reference material added." : "Not completed yet."}</div>}
+              {cleanLinks(wholeReq?.outcome_links).length > 0
+                ? cleanLinks(wholeReq?.outcome_links).map((l, i) => <LinkRow key={i} link={l} theme="indigo" />)
+                : <div className="p-3.5 bg-muted/50 rounded-xl border border-dashed text-[13px] text-muted-foreground italic">{status === "approved" ? "No reference material added." : "Not completed yet."}</div>}
             </div>
           </>
         )}
-        <DialogFooter>
-          <Button variant="outline" className="w-full" onClick={onClose}>Close</Button>
+        <DialogFooter className="gap-2 sm:gap-2">
+          {onDelete && <Button variant="outline" className="text-rose-600 border-rose-200 hover:bg-rose-50" onClick={() => setConfirmDel(true)}><Trash2 className="h-3.5 w-3.5 mr-1.5" />Delete</Button>}
+          {onEdit && status !== "discarded" && <Button variant="outline" onClick={() => onEdit(training)}><Pencil className="h-3.5 w-3.5 mr-1.5" />Edit</Button>}
+          <Button variant="outline" className="flex-1" onClick={onClose}>Close</Button>
         </DialogFooter>
       </ModalContent>
+      <ConfirmDialog
+        open={confirmDel} danger
+        title={`Delete "${training.name}"?`}
+        body={`This removes the training from ${u.full_name}'s list, including any submitted notes and approvals. This can't be undone.`}
+        confirmLabel="Delete training"
+        onConfirm={async () => { setConfirmDel(false); await onDelete(training); }}
+        onCancel={() => setConfirmDel(false)}
+      />
     </Dialog>
   );
 }
 
-// ── COMPLETE MODAL ────────────────────────────────────────────────────────────
-function CompleteModal({ training, part, onSubmit, onClose }) {
+// ── APPROVAL REQUEST MODAL (reportee submits / resubmits) ────────────────────
+function ApprovalRequestModal({ training, part, requests, onSubmit, onClose }) {
   const [notes, setNotes] = useState(""); const [outcomes, setOutcomes] = useState([{ url: "", title: "" }]);
-  const resources = part ? cleanLinks(part.resources) : cleanLinks(training.resources);
+  const [busy, setBusy] = useState(false);
   const ok = notes.trim().length > 0 && cleanLinks(outcomes).length > 0;
-  const partIdx = part ? training.parts.findIndex(p => p.id === part.id) : -1;
+  const partsList = sortedParts(training);
+  const partIdx = part ? partsList.findIndex(p => p.id === part.id) : -1;
+  const isResubmit = (part ? part.status : training.status) === "sent_back";
+  const sentBackReq = reqFor(requests, training.id, part?.id || null, "sent_back");
+  const materialLink = part?.part_link || training.training_link;
+
+  const submit = async () => {
+    if (!ok) return;
+    setBusy(true);
+    try { await onSubmit(training.id, part?.id || null, notes.trim(), cleanLinks(outcomes)); }
+    finally { setBusy(false); }
+  };
 
   return (
     <Dialog open onOpenChange={o => !o && onClose()}>
       <ModalContent size="lg">
         <DialogHeader>
-          <DialogTitle>{part ? `Complete Part ${partIdx + 1}` : "Mark as Completed"} ✅</DialogTitle>
-          <DialogDescription className="text-indigo-700 font-semibold">{training.title}</DialogDescription>
+          <DialogTitle>{isResubmit ? "Resubmit for Approval" : "Request Approval"}{part ? ` — Part ${partIdx + 1}` : ""}</DialogTitle>
+          <DialogDescription className="text-indigo-700 font-semibold">{training.name}</DialogDescription>
         </DialogHeader>
 
-        {part && <div className="text-[13px] text-muted-foreground px-3.5 py-2 bg-indigo-50 rounded-lg border border-indigo-200">📋 Part {partIdx + 1}: {part.title}</div>}
-
-        {resources.length > 0 && (
-          <div>
-            <div className="text-xs font-semibold text-amber-700 mb-1.5">📌 Study {part ? "material for this part" : "resources"}:</div>
-            {resources.map((l, i) => (
-              <a key={i} href={safeUrl(l.url)} target="_blank" rel="noreferrer" className="block text-[12.5px] font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-1.5 no-underline hover:brightness-95">
-                <Link2 className="h-3 w-3 inline mr-1" />{l.title || "Open material"} <ExternalLink className="h-3 w-3 inline" />
-              </a>
-            ))}
+        {isResubmit && sentBackReq?.manager_remarks && (
+          <div className="rounded-lg bg-orange-50 border border-orange-200 px-3.5 py-2.5 text-[12.5px] text-orange-700">
+            <strong>Manager's remarks:</strong> {sentBackReq.manager_remarks}
           </div>
         )}
 
+        {part && <div className="text-[13px] text-muted-foreground px-3.5 py-2 bg-indigo-50 rounded-lg border border-indigo-200">📋 Part {partIdx + 1}: {part.title}</div>}
+
+        {materialLink && (
+          <a href={safeUrl(materialLink)} target="_blank" rel="noreferrer" className="block text-[12.5px] font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 no-underline hover:brightness-95">
+            <Link2 className="h-3 w-3 inline mr-1" />Open study material <ExternalLink className="h-3 w-3 inline" />
+          </a>
+        )}
+
         <div className="rounded-lg bg-indigo-50 border border-indigo-200 px-3.5 py-2.5 text-[12.5px] text-indigo-700">
-          ℹ️ <strong>Both fields are mandatory</strong> — your notes and outcome links help the whole team learn from your experience.
+          ℹ️ <strong>Both fields are mandatory</strong> — your manager reviews these before approving.
         </div>
 
         <div className="space-y-1.5">
           <Label>{part ? `Key Learnings — Part ${partIdx + 1}` : "Key Learnings / Outcome Notes"} <span className="text-rose-500">*</span></Label>
-          <Textarea value={notes} onChange={e => setNotes(e.target.value)} rows={4} placeholder="What did you learn? What were the key takeaways? Be specific so teammates benefit." />
+          <Textarea value={notes} onChange={e => setNotes(e.target.value)} rows={4} placeholder="What did you learn? Be specific so your manager and teammates benefit." />
         </div>
         <div className="space-y-1.5">
           <Label>Outcome Reference Material <span className="text-rose-500">*</span></Label>
           <LinkListEditor links={outcomes} setLinks={setOutcomes} titleP="e.g. 'My notes doc', 'Certificate'" addLabel="Add another reference" />
-          <p className="text-xs text-muted-foreground">Add your notes doc, certificate, recording, or any useful link. Add as many as needed.</p>
         </div>
 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
-          <Button className="flex-[2]" disabled={!ok} onClick={() => onSubmit(training.id, part?.id || null, { notes, outcomes: cleanLinks(outcomes) })}>{part ? `Submit Part ${partIdx + 1}` : "Submit Completion"}</Button>
+          <Button className="flex-[2]" disabled={!ok || busy} onClick={submit}>{busy ? "Submitting…" : isResubmit ? "Resubmit" : "Submit for Approval"}</Button>
         </DialogFooter>
       </ModalContent>
     </Dialog>
   );
 }
 
-// ── ASSIGN MODAL (pure picker) ────────────────────────────────────────────────
-function AssignModal({ users, catalog, currentFY, onSubmit, onClose, onGoToCatalog }) {
+// ── APPROVALS (manager) ────────────────────────────────────────────────────────
+function ApprovalsPanel({ approvals, onApprove, onSendBack, onRefresh, refreshing }) {
+  const [target, setTarget] = useState(null); // { req, action: "approve" | "send_back" }
+  const [remarks, setRemarks] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const isApprove = target?.action === "approve";
+  const open = (req, action) => { setTarget({ req, action }); setRemarks(""); setErr(""); };
+  const confirm = async () => {
+    setBusy(true); setErr("");
+    try {
+      if (isApprove) await onApprove(target.req.request_id, remarks.trim());
+      else await onSendBack(target.req.request_id, remarks.trim());
+      setTarget(null);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  return (
+    <div>
+      <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Approvals</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Review completion requests from your reportees</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={onRefresh}><RefreshCw className={cn("h-4 w-4 mr-1.5", refreshing && "animate-spin")} />Refresh</Button>
+      </div>
+      {approvals.length === 0 ? (
+        <Card className="border-dashed"><CardContent className="p-14 text-center text-sm text-muted-foreground">🎉 Nothing waiting on you right now.</CardContent></Card>
+      ) : (
+        <div className="space-y-3">
+          {approvals.map(r => (
+            <Card key={r.request_id}>
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+                  <div>
+                    <div className="font-semibold text-[14.5px]">{r.training_name}{r.part_title ? ` — ${r.part_title}` : ""}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5"><UAvatar name={r.reportee_name} className="h-4 w-4" />{r.reportee_name} · requested {fmtDate((r.created_at || "").slice(0, 10))}</div>
+                  </div>
+                </div>
+                <div className="bg-muted/50 border rounded-lg p-3 text-[13px] whitespace-pre-wrap mb-2.5">{r.notes}</div>
+                <LinkChips links={r.outcome_links} />
+                <div className="flex gap-2 mt-3.5">
+                  <Button size="sm" variant="outline" className="text-rose-600 border-rose-200 hover:bg-rose-50" onClick={() => open(r, "send_back")}><X className="h-3.5 w-3.5 mr-1" />Send Back</Button>
+                  <Button size="sm" onClick={() => open(r, "approve")}><Check className="h-3.5 w-3.5 mr-1" />Approve</Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+      <Dialog open={!!target} onOpenChange={o => !o && setTarget(null)}>
+        <ModalContent size="md">
+          <DialogHeader>
+            <DialogTitle>{isApprove ? "Approve" : "Send back"}{target ? ` — ${target.req.training_name}${target.req.part_title ? ` (${target.req.part_title})` : ""}` : ""}</DialogTitle>
+            <DialogDescription>{isApprove ? `This marks it as complete for ${target?.req.reportee_name} and adds it to the Knowledge Hub. Remarks are optional.` : `Remarks are required so ${target?.req.reportee_name} knows what to fix.`}</DialogDescription>
+          </DialogHeader>
+          <Textarea value={remarks} onChange={e => setRemarks(e.target.value)} rows={4} placeholder={isApprove ? "Feedback for the reportee (optional)" : "What needs to change?"} />
+          {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => setTarget(null)}>Cancel</Button>
+            {isApprove
+              ? <Button className="flex-[2] bg-emerald-600 hover:bg-emerald-700" disabled={busy} onClick={confirm}><Check className="h-3.5 w-3.5 mr-1" />{busy ? "Approving…" : "Approve & mark complete"}</Button>
+              : <Button className="flex-[2] bg-rose-600 hover:bg-rose-700" disabled={!remarks.trim() || busy} onClick={confirm}>{busy ? "Sending…" : "Send Back"}</Button>}
+          </DialogFooter>
+        </ModalContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ── TRAINING FORM (shared by assign / edit / catalog) ─────────────────────────
+// Fields the pilot feedback requires on every training: name, category, link,
+// mode (+ trainer for face-to-face), priority — plus optional extras.
+const emptyTrainingForm = () => ({
+  name: "", category_id: "", training_link: "", mode: "online", trainer: "", priority: "medium",
+  resources: [{ url: "", title: "" }], parts: [],
+});
+const formFromTemplate = t => ({
+  name: t.name || "", category_id: t.category_id || "", training_link: t.training_link || "",
+  mode: t.mode || "online", trainer: t.trainer || "", priority: t.priority || "medium",
+  resources: cleanLinks(t.resources).length ? cleanLinks(t.resources) : [{ url: "", title: "" }],
+  parts: (t.parts || []).map(p => ({ id: uid("p"), title: p.title || "", part_link: p.part_link || "" })),
+});
+const trainingFormValid = f => f.name.trim() && f.category_id && f.training_link.trim() && (f.mode !== "face_to_face" || f.trainer.trim());
+const trainingFormPayload = f => ({
+  name: f.name.trim(), category_id: f.category_id, training_link: f.training_link.trim(),
+  mode: f.mode, trainer: f.mode === "face_to_face" ? f.trainer.trim() : null,
+  priority: f.priority, resources: cleanLinks(f.resources),
+});
+const formParts = f => f.parts.filter(p => p.title.trim()).map(p => ({ title: p.title.trim(), part_link: p.part_link.trim() || null }));
+
+function TrainingFields({ form, setForm, categories, showParts = true, partsLocked }) {
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+  const addPart = () => set("parts", [...form.parts, { id: uid("p"), title: "", part_link: "" }]);
+  const updPart = (id, f, v) => set("parts", form.parts.map(x => x.id === id ? { ...x, [f]: v } : x));
+  const rmPart = id => set("parts", form.parts.filter(x => x.id !== id));
+  return (
+    <>
+      <div className="space-y-1.5">
+        <Label>Training Name <span className="text-rose-500">*</span></Label>
+        <Input value={form.name} onChange={e => set("name", e.target.value)} placeholder='e.g. "Advanced SQL for Analysts"' />
+      </div>
+      <div className="space-y-1.5">
+        <Label>Training Category <span className="text-rose-500">*</span></Label>
+        <CategorySelect categories={categories} value={form.category_id} onChange={v => set("category_id", v)} />
+      </div>
+      <div className="space-y-1.5">
+        <Label>Training Material Link <span className="text-rose-500">*</span></Label>
+        <Input type="url" value={form.training_link} onChange={e => set("training_link", e.target.value)} placeholder="https://..." />
+        <p className="text-xs text-muted-foreground">Mandatory — the reportee needs this before requesting approval.</p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label>Training Mode</Label>
+          <Select value={form.mode} onValueChange={v => set("mode", v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>{MODE_OPTIONS.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label>Training Priority</Label>
+          <Select value={form.priority} onValueChange={v => set("priority", v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>{PRIORITY_OPTIONS.map(p => <SelectItem key={p} value={p} className="capitalize">{p}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        {form.mode === "face_to_face" && (
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Trainer <span className="text-rose-500">*</span></Label>
+            <Input value={form.trainer} onChange={e => set("trainer", e.target.value)} placeholder="Trainer name" />
+          </div>
+        )}
+      </div>
+      <div className="space-y-1.5">
+        <Label>Additional Reference Material (optional)</Label>
+        <LinkListEditor links={form.resources} setLinks={fn => set("resources", typeof fn === "function" ? fn(form.resources) : fn)} addLabel="Add link" />
+      </div>
+      {showParts && (
+        <div className="bg-muted/50 border rounded-xl p-4">
+          <div className="text-[13px] font-semibold mb-1">Parts / Modules <span className="text-muted-foreground font-normal">(optional)</span></div>
+          {partsLocked ? (
+            <p className="text-xs text-muted-foreground">{partsLocked}</p>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground mb-3.5">Break it into parts if needed — the reportee requests approval part by part.</p>
+              <div className="space-y-2">
+                {form.parts.map((p, i) => (
+                  <div key={p.id} className="flex gap-2 items-start">
+                    <PartDot n={i + 1} status="pending" />
+                    <Input value={p.title} onChange={e => updPart(p.id, "title", e.target.value)} placeholder={`Part ${i + 1} name`} className="flex-1" />
+                    <Input value={p.part_link} onChange={e => updPart(p.id, "part_link", e.target.value)} placeholder="Link (optional)" className="flex-1" />
+                    <Button type="button" variant="ghost" size="icon" className="shrink-0 text-muted-foreground" onClick={() => rmPart(p.id)}><X className="h-4 w-4" /></Button>
+                  </div>
+                ))}
+                <Button type="button" variant="outline" size="sm" className="border-dashed text-muted-foreground" onClick={addPart}><Plus className="h-3.5 w-3.5 mr-1" />Add Part</Button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+function DateFields({ expectedEnd, setExpectedEnd, dueDate, setDueDate }) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="space-y-1.5">
+        <Label>Expected Training End Date <span className="text-rose-500">*</span></Label>
+        <Input type="date" value={expectedEnd} onChange={e => setExpectedEnd(e.target.value)} />
+      </div>
+      <div className="space-y-1.5">
+        <Label>Due Date (optional)</Label>
+        <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+      </div>
+    </div>
+  );
+}
+
+function ReporteePicker({ reportees, memberIds, setMemberIds, onGoToSettings }) {
+  const toggle = id => setMemberIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  const active = reportees.filter(u => u.is_active);
+  const allOn = active.length > 0 && active.every(u => memberIds.includes(u.id));
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <Label>Reportees <span className="text-rose-500">*</span> {memberIds.length > 0 && <span className="text-muted-foreground font-normal">· {memberIds.length} selected</span>}</Label>
+        {active.length > 1 && <button type="button" className="text-[12px] text-indigo-700 hover:underline" onClick={() => setMemberIds(allOn ? [] : active.map(u => u.id))}>{allOn ? "Clear all" : "Select all"}</button>}
+      </div>
+      {active.length === 0 ? (
+        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3.5 py-3 text-[13px] text-amber-800">
+          No active reportees yet. <button onClick={onGoToSettings} className="underline font-semibold">Add one in Team & Settings</button> first.
+        </div>
+      ) : (
+        <div className="border rounded-lg divide-y max-h-52 overflow-y-auto">
+          {active.map(u => (
+            <label key={u.id} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-muted transition">
+              <Checkbox checked={memberIds.includes(u.id)} onCheckedChange={() => toggle(u.id)} />
+              <UAvatar name={u.full_name} color={u.color} className="h-7 w-7" />
+              <div className="min-w-0"><div className="text-[13px] font-medium truncate">{u.full_name}</div><div className="text-[11px] text-muted-foreground truncate">{u.email}</div></div>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── ASSIGN MODAL (one training → one or more reportees) ───────────────────────
+function AssignModal({ reportees, categories, catalog, currentFY, initialCatalogId, onSubmit, onClose, onGoToSettings }) {
+  const initial = catalog.find(c => c.id === initialCatalogId);
+  const [catalogId, setCatalogId] = useState(initial?.id || "");
+  const [form, setForm] = useState(initial ? formFromTemplate(initial) : emptyTrainingForm());
   const [memberIds, setMemberIds] = useState([]);
-  const [catIds, setCatIds] = useState([]);
+  const [expectedEnd, setExpectedEnd] = useState("");
   const [dueDate, setDueDate] = useState("");
-  const members = users.filter(u => u.role === "member");
-  const selectedCats = catalog.filter(c => catIds.includes(c.id));
-  const ok = memberIds.length > 0 && catIds.length > 0;
-  const totalAssignments = memberIds.length * catIds.length;
+  const [saveToCatalog, setSaveToCatalog] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
 
-  const toggleMember = id => setMemberIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
-  const toggleCat = id => setCatIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  const pickCatalog = id => {
+    setCatalogId(id === "__none__" ? "" : id);
+    const c = catalog.find(x => x.id === id);
+    setForm(c ? formFromTemplate(c) : emptyTrainingForm());
+  };
+  const ok = memberIds.length > 0 && trainingFormValid(form) && expectedEnd;
 
-  const submit = () => {
+  const submit = async () => {
     if (!ok) return;
-    const batch = [];
-    memberIds.forEach(userId => {
-      selectedCats.forEach(sel => {
-        batch.push({
-          userId, catId: sel.id, title: sel.name, dueDate: dueDate || null,
-          resources: cleanLinks(sel.resources),
-          parts: (sel.parts || []).map(p => ({ id: uid("p"), title: p.title, resources: cleanLinks(p.resources), status: "pending", completedDate: null, notes: null, outcomes: [] })),
-        });
+    setBusy(true); setErr("");
+    try {
+      await onSubmit({
+        memberIds,
+        payload: { ...trainingFormPayload(form), expected_end_date: expectedEnd, due_date: dueDate || null, fy: currentFY, status: "pending", catalog_id: catalogId || null },
+        parts: formParts(form),
+        saveToCatalog: !catalogId && saveToCatalog,
       });
-    });
-    onSubmit(batch);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
   };
 
   return (
     <Dialog open onOpenChange={o => !o && onClose()}>
-      <ModalContent size="lg">
+      <ModalContent size="xl">
         <DialogHeader>
           <DialogTitle>Assign Training</DialogTitle>
-          <DialogDescription className="flex items-center gap-2">Select members and trainings — you can pick several of each. <FYBadge fy={currentFY} /></DialogDescription>
+          <DialogDescription className="flex items-center gap-2">Pick from the catalog or fill in a new one, then assign to one or more reportees. <FYBadge fy={currentFY} /></DialogDescription>
         </DialogHeader>
 
-        {/* Members multi-select */}
         <div className="space-y-1.5">
-          <Label>Team Members <span className="text-rose-500">*</span> {memberIds.length > 0 && <span className="text-muted-foreground font-normal">· {memberIds.length} selected</span>}</Label>
-          {members.length === 0 ? (
-            <div className="rounded-lg bg-amber-50 border border-amber-200 px-3.5 py-3 text-[13px] text-amber-800">No members yet. Add them in Settings first.</div>
-          ) : (
-            <div className="border rounded-lg divide-y max-h-52 overflow-y-auto">
-              {members.map(u => (
-                <label key={u.id} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-muted transition">
-                  <Checkbox checked={memberIds.includes(u.id)} onCheckedChange={() => toggleMember(u.id)} />
-                  <UAvatar name={u.name} color={u.color} className="h-7 w-7" />
-                  <div className="min-w-0"><div className="text-[13px] font-medium truncate">{u.name}</div><div className="text-[11px] text-muted-foreground truncate">{u.email || "no email"}</div></div>
-                </label>
-              ))}
-            </div>
-          )}
+          <Label>From Training Catalog</Label>
+          <Select value={catalogId || "__none__"} onValueChange={pickCatalog}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">+ New training (not in catalog)</SelectItem>
+              {catalog.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
 
-        {/* Trainings multi-select */}
-        <div className="space-y-1.5">
-          <Label>Trainings <span className="text-rose-500">*</span> {catIds.length > 0 && <span className="text-muted-foreground font-normal">· {catIds.length} selected</span>}</Label>
-          {catalog.length === 0 ? (
-            <div className="rounded-lg bg-amber-50 border border-amber-200 px-3.5 py-3 text-[13px] text-amber-800">
-              Your catalog is empty. <button onClick={onGoToCatalog} className="underline font-semibold">Add a training in the Catalog</button> first.
-            </div>
-          ) : (
-            <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
-              {catalog.map(c => {
-                const parts = c.parts || []; const res = cleanLinks(c.resources); const on = catIds.includes(c.id);
-                return (
-                  <label key={c.id} className={cn("flex items-start gap-3 px-3 py-2.5 cursor-pointer transition", on ? "bg-indigo-50/60" : "hover:bg-muted")}>
-                    <Checkbox className="mt-0.5" checked={on} onCheckedChange={() => toggleCat(c.id)} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[13px] font-medium">{c.name}</span>
-                        {parts.length > 0
-                          ? <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">{parts.length} parts</span>
-                          : <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">single</span>}
-                        {res.length > 0 && <span className="text-[10px] text-muted-foreground inline-flex items-center gap-0.5"><Link2 className="h-2.5 w-2.5" />{res.length}</span>}
-                      </div>
-                      {on && parts.length > 0 && (
-                        <div className="text-[11px] text-muted-foreground mt-1">{parts.map(p => p.title).join(" · ")}</div>
-                      )}
-                    </div>
-                  </label>
-                );
-              })}
-            </div>
-          )}
-          <p className="text-xs text-muted-foreground">Parts and reference links come from the Training Catalog automatically.</p>
-        </div>
+        <TrainingFields form={form} setForm={setForm} categories={categories} />
+        <DateFields expectedEnd={expectedEnd} setExpectedEnd={setExpectedEnd} dueDate={dueDate} setDueDate={setDueDate} />
+        <ReporteePicker reportees={reportees} memberIds={memberIds} setMemberIds={setMemberIds} onGoToSettings={onGoToSettings} />
 
-        <div className="space-y-1.5">
-          <Label>Due Date (optional)</Label>
-          <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} min={today()} />
-          <p className="text-xs text-muted-foreground">Applied to every training in this batch. Overdue items are flagged automatically.</p>
-        </div>
-
-        {ok && (
-          <div className="rounded-lg bg-indigo-50 border border-indigo-200 px-3.5 py-2.5 text-[13px] text-indigo-800">
-            This will create <strong>{totalAssignments}</strong> assignment{totalAssignments > 1 ? "s" : ""} ({catIds.length} training{catIds.length > 1 ? "s" : ""} × {memberIds.length} member{memberIds.length > 1 ? "s" : ""}).
-          </div>
+        {!catalogId && (
+          <label className="flex items-center gap-2 text-[13px] cursor-pointer">
+            <Checkbox checked={saveToCatalog} onCheckedChange={v => setSaveToCatalog(!!v)} />
+            Also save this training to the Training Catalog for future use
+          </label>
         )}
+        {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
-          <Button className="flex-[2]" disabled={!ok} onClick={submit}>{ok && totalAssignments > 1 ? `Assign ${totalAssignments} Trainings` : "Assign Training"}</Button>
+          <Button className="flex-[2]" disabled={!ok || busy} onClick={submit}>{busy ? "Assigning…" : memberIds.length > 1 ? `Assign to ${memberIds.length} reportees` : "Assign Training"}</Button>
         </DialogFooter>
       </ModalContent>
     </Dialog>
   );
 }
 
-// ── CATALOG MANAGER (training builder) ────────────────────────────────────────
-function CatalogManager({ catalog, trainings, onSave, openNew }) {
-  const [local, setLocal] = useState(() => catalog);
-  const [saved, setSaved] = useState(false);
-  const [editId, setEditId] = useState(null);
-  const [creating, setCreating] = useState(false);
-  const [draft, setDraft] = useState(null);
-  const [delTarget, setDelTarget] = useState(null);
+// ── BULK ASSIGN (many catalog trainings → many reportees) ─────────────────────
+function BulkAssignModal({ reportees, catalog, currentFY, initialIds, onSubmit, onClose, onGoToSettings }) {
+  const [itemIds, setItemIds] = useState(initialIds || []);
+  const [memberIds, setMemberIds] = useState([]);
+  const [expectedEnd, setExpectedEnd] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [search, setSearch] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const toggle = id => setItemIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  const shown = catalog.filter(c => c.name.toLowerCase().includes(search.trim().toLowerCase()));
+  const total = itemIds.length * memberIds.length;
+  const ok = itemIds.length > 0 && memberIds.length > 0 && expectedEnd;
 
-  useEffect(() => { setLocal(catalog); }, [catalog]);
-  useEffect(() => { if (openNew) startCreate(); /* eslint-disable-next-line */ }, [openNew]);
-
-  const usage = item => trainings.filter(t => ((t.catId && t.catId === item.id) || t.title === item.name) && getEffStatus(t) !== "discarded").length;
-
-  const blankDraft = () => ({ id: uid("c"), name: "", resources: [{ url: "", title: "" }], parts: [] });
-  const startCreate = () => { setDraft(blankDraft()); setCreating(true); setEditId(null); };
-  const startEdit = item => { setDraft({ ...item, resources: (item.resources && item.resources.length ? item.resources : [{ url: "", title: "" }]), parts: (item.parts || []).map(p => ({ ...p, resources: [...(p.resources || [])] })) }); setEditId(item.id); setCreating(false); };
-  const cancelEdit = () => { setDraft(null); setEditId(null); setCreating(false); };
-
-  const commitDraft = async () => {
-    if (!draft.name.trim()) return;
-    const clean = { id: draft.id, name: draft.name.trim(), resources: cleanLinks(draft.resources), parts: (draft.parts || []).filter(p => p.title.trim()).map(p => ({ id: p.id || uid("cp"), title: p.title.trim(), resources: cleanLinks(p.resources) })) };
-    const next = creating ? [...local, clean] : local.map(c => c.id === clean.id ? clean : c);
-    setLocal(next); await onSave(next);
-    setSaved(true); setTimeout(() => setSaved(false), 2000);
-    cancelEdit();
+  const submit = async () => {
+    setBusy(true); setErr("");
+    try { await onSubmit({ items: catalog.filter(c => itemIds.includes(c.id)), memberIds, expectedEnd, dueDate: dueDate || null }); }
+    catch (e) { setErr(e.message); }
+    setBusy(false);
   };
-  const requestRemove = item => { if (usage(item) > 0) return; setDelTarget(item); };
-  const confirmRemove = async () => {
-    const item = delTarget; setDelTarget(null);
-    if (!item) return;
-    const next = local.filter(c => c.id !== item.id);
-    setLocal(next); await onSave(next);
+
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <ModalContent size="xl">
+        <DialogHeader>
+          <DialogTitle>Bulk Assign from Catalog</DialogTitle>
+          <DialogDescription className="flex items-center gap-2">Pick several catalog trainings and assign all of them to the selected reportees in one go. <FYBadge fy={currentFY} /></DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-1.5">
+          <Label>Trainings <span className="text-rose-500">*</span> {itemIds.length > 0 && <span className="text-muted-foreground font-normal">· {itemIds.length} selected</span>}</Label>
+          {catalog.length === 0 ? (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-3.5 py-3 text-[13px] text-amber-800">The Training Catalog is empty — add or import trainings there first.</div>
+          ) : (
+            <>
+              <div className="relative">
+                <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search catalog..." className="pl-9" />
+              </div>
+              <div className="border rounded-lg divide-y max-h-56 overflow-y-auto">
+                {shown.map(c => (
+                  <label key={c.id} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-muted transition">
+                    <Checkbox checked={itemIds.includes(c.id)} onCheckedChange={() => toggle(c.id)} />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] font-medium truncate">{c.name}</div>
+                      <div className="text-[11px] text-muted-foreground truncate">{c.training_categories ? `${c.training_categories.group_name} · ${c.training_categories.name}` : "No category"} · {MODE_OPTIONS.find(m => m.value === c.mode)?.label} · <span className="capitalize">{c.priority}</span>{(c.parts || []).length ? ` · ${c.parts.length} parts` : ""}</div>
+                    </div>
+                  </label>
+                ))}
+                {shown.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No matches.</p>}
+              </div>
+            </>
+          )}
+        </div>
+
+        <DateFields expectedEnd={expectedEnd} setExpectedEnd={setExpectedEnd} dueDate={dueDate} setDueDate={setDueDate} />
+        <ReporteePicker reportees={reportees} memberIds={memberIds} setMemberIds={setMemberIds} onGoToSettings={onGoToSettings} />
+        {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
+
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button className="flex-[2]" disabled={!ok || busy} onClick={submit}>{busy ? "Assigning…" : total ? `Create ${total} assignment${total > 1 ? "s" : ""}` : "Assign"}</Button>
+        </DialogFooter>
+      </ModalContent>
+    </Dialog>
+  );
+}
+
+// ── EDIT TRAINING (manager) ───────────────────────────────────────────────────
+function EditTrainingModal({ training, categories, onSubmit, onClose }) {
+  const [form, setForm] = useState(formFromTemplate(training));
+  const [expectedEnd, setExpectedEnd] = useState(training.expected_end_date || "");
+  const [dueDate, setDueDate] = useState(training.due_date || "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const ok = trainingFormValid(form) && expectedEnd;
+  const submit = async () => {
+    setBusy(true); setErr("");
+    try { await onSubmit(training.id, { ...trainingFormPayload(form), expected_end_date: expectedEnd, due_date: dueDate || null }); }
+    catch (e) { setErr(e.message); }
+    setBusy(false);
   };
-  const dUpd = (f, v) => setDraft(d => ({ ...d, [f]: v }));
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <ModalContent size="xl">
+        <DialogHeader>
+          <DialogTitle>Edit Training</DialogTitle>
+          <DialogDescription>Changes apply to this reportee's assignment only.</DialogDescription>
+        </DialogHeader>
+        <TrainingFields form={form} setForm={setForm} categories={categories} showParts={hasParts(training)} partsLocked="Parts can't be changed once assigned — delete and re-assign the training to change its parts." />
+        <DateFields expectedEnd={expectedEnd} setExpectedEnd={setExpectedEnd} dueDate={dueDate} setDueDate={setDueDate} />
+        {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button className="flex-[2]" disabled={!ok || busy} onClick={submit}>{busy ? "Saving…" : "Save changes"}</Button>
+        </DialogFooter>
+      </ModalContent>
+    </Dialog>
+  );
+}
+
+// ── TRAINING CATALOG ──────────────────────────────────────────────────────────
+function CatalogItemModal({ item, categories, onSubmit, onClose }) {
+  const [form, setForm] = useState(item ? formFromTemplate(item) : emptyTrainingForm());
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const submit = async () => {
+    setBusy(true); setErr("");
+    try { await onSubmit({ ...(item?.id ? { id: item.id } : {}), ...trainingFormPayload(form), parts: formParts(form) }); }
+    catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <ModalContent size="xl">
+        <DialogHeader>
+          <DialogTitle>{item ? "Edit Catalog Training" : "Add Training to Catalog"}</DialogTitle>
+          <DialogDescription>Catalog trainings can be assigned to reportees any time, singly or in bulk.</DialogDescription>
+        </DialogHeader>
+        <TrainingFields form={form} setForm={setForm} categories={categories} />
+        {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button className="flex-[2]" disabled={!trainingFormValid(form) || busy} onClick={submit}>{busy ? "Saving…" : item ? "Save changes" : "Add to catalog"}</Button>
+        </DialogFooter>
+      </ModalContent>
+    </Dialog>
+  );
+}
+
+// Excel columns for bulk import (template download uses the same headers).
+const IMPORT_COLUMNS = ["Training Name", "Category Group", "Category", "Training Link", "Mode", "Trainer", "Priority", "Parts (separate with ;)"];
+
+function parseImportRows(rows, categories, existingNames) {
+  const modeOf = v => { const s = String(v || "online").trim().toLowerCase().replace(/[\s-]+/g, "_"); return { f2f: "face_to_face", face_to_face: "face_to_face", facetoface: "face_to_face", online: "online", self_paced: "self_paced", selfpaced: "self_paced", blended: "blended" }[s]; };
+  const seen = new Set(existingNames.map(n => n.toLowerCase()));
+  return rows.map((r, i) => {
+    const get = k => String(r[k] ?? "").trim();
+    const name = get("Training Name");
+    const group = get("Category Group"), catName = get("Category");
+    const cat = categories.find(c => c.name.toLowerCase() === catName.toLowerCase() && (!group || c.group_name.toLowerCase() === group.toLowerCase()));
+    const mode = modeOf(get("Mode"));
+    const priority = (get("Priority") || "medium").toLowerCase();
+    const trainer = get("Trainer");
+    const errors = [];
+    if (!name) errors.push("name missing");
+    else if (seen.has(name.toLowerCase())) errors.push("already in catalog / duplicate");
+    if (!cat) errors.push(catName ? `unknown category "${catName}"` : "category missing");
+    if (!get("Training Link")) errors.push("link missing");
+    if (!mode) errors.push(`unknown mode "${get("Mode")}"`);
+    if (mode === "face_to_face" && !trainer) errors.push("trainer required for face to face");
+    if (!PRIORITY_OPTIONS.includes(priority)) errors.push(`unknown priority "${get("Priority")}"`);
+    if (name) seen.add(name.toLowerCase());
+    return {
+      rowNo: i + 2, errors,
+      row: {
+        name, category_id: cat?.id, training_link: get("Training Link"), mode: mode || "online",
+        trainer: mode === "face_to_face" ? trainer : null, priority,
+        parts: get("Parts (separate with ;)").split(";").map(s => s.trim()).filter(Boolean).map(title => ({ title, part_link: null })),
+      },
+    };
+  });
+}
+
+function ImportModal({ categories, catalog, onImport, onClose }) {
+  const [parsed, setParsed] = useState(null);
+  const [fileName, setFileName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const valid = (parsed || []).filter(p => !p.errors.length);
+
+  const downloadTemplate = () => {
+    const XLSX = window.XLSX; if (!XLSX) { setErr("Excel library is still loading — try again in a moment."); return; }
+    const sample = [IMPORT_COLUMNS, ["Advanced SQL for Analysts", "Field & Subject", categories.find(c => c.group_name === "Field & Subject")?.name || "", "https://example.com/sql", "Online", "", "high", "Joins; Window functions; Query tuning"]];
+    const cats = [["Category Group", "Category"], ...categories.map(c => [c.group_name, c.name])];
+    const opts = [["Mode", "Priority"], ["Online", "low"], ["Face to Face", "medium"], ["Self-paced", "high"], ["Blended", "critical"]];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sample), "Trainings");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(cats), "Categories");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(opts), "Mode & Priority");
+    XLSX.writeFile(wb, "TrainTrack_Catalog_Template.xlsx");
+  };
+
+  const onFile = async e => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setErr(""); setFileName(file.name);
+    try {
+      const XLSX = window.XLSX; if (!XLSX) throw new Error("Excel library is still loading — try again in a moment.");
+      const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
+      if (!rows.length) throw new Error("No rows found in the first sheet.");
+      if (!("Training Name" in rows[0])) throw new Error("Column \"Training Name\" not found — please use the template.");
+      setParsed(parseImportRows(rows, categories, catalog.map(c => c.name)));
+    } catch (ex) { setErr(ex.message); setParsed(null); }
+  };
+
+  const doImport = async () => {
+    setBusy(true); setErr("");
+    try { await onImport(valid.map(v => v.row)); } catch (ex) { setErr(ex.message); }
+    setBusy(false);
+  };
+
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <ModalContent size="xl">
+        <DialogHeader>
+          <DialogTitle>Bulk Import Trainings</DialogTitle>
+          <DialogDescription>Upload an Excel sheet to add many trainings to the catalog at once.</DialogDescription>
+        </DialogHeader>
+        <div className="rounded-lg bg-indigo-50 border border-indigo-200 px-3.5 py-3 text-[12.5px] text-indigo-800 flex items-center justify-between gap-3 flex-wrap">
+          <span>1. Download the template, fill one training per row. 2. Upload it here.</span>
+          <Button size="sm" variant="outline" onClick={downloadTemplate}><Download className="h-3.5 w-3.5 mr-1.5" />Template</Button>
+        </div>
+        <label className="flex items-center justify-center gap-2 border-2 border-dashed rounded-xl py-6 cursor-pointer hover:bg-muted transition text-[13px] text-muted-foreground">
+          <Upload className="h-4 w-4" />{fileName || "Choose .xlsx / .csv file"}
+          <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onFile} />
+        </label>
+        {parsed && (
+          <div>
+            <div className="text-[13px] font-semibold mb-2">{valid.length} of {parsed.length} rows ready to import</div>
+            <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
+              {parsed.map(p => (
+                <div key={p.rowNo} className={cn("flex items-start gap-2.5 px-3 py-2 text-[12.5px]", p.errors.length && "bg-rose-50/60")}>
+                  <span className="text-muted-foreground w-12 shrink-0">Row {p.rowNo}</span>
+                  <span className="flex-1 font-medium">{p.row.name || <em className="text-muted-foreground">(no name)</em>}</span>
+                  {p.errors.length ? <span className="text-rose-600 text-right">{p.errors.join(", ")}</span> : <Check className="h-4 w-4 text-emerald-600" />}
+                </div>
+              ))}
+            </div>
+            {valid.length < parsed.length && <p className="text-xs text-muted-foreground mt-1.5">Rows with errors are skipped. Fix them in the sheet and import again.</p>}
+          </div>
+        )}
+        {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button className="flex-[2]" disabled={!valid.length || busy} onClick={doImport}>{busy ? "Importing…" : `Import ${valid.length} training${valid.length === 1 ? "" : "s"}`}</Button>
+        </DialogFooter>
+      </ModalContent>
+    </Dialog>
+  );
+}
+
+function CatalogPage({ catalog, categories, trainings, canAssign, onSave, onImport, onDelete, onAssign, onBulkAssign }) {
+  const [search, setSearch] = useState("");
+  const [editing, setEditing] = useState(null); // null | "new" | item
+  const [importOpen, setImportOpen] = useState(false);
+  const [selected, setSelected] = useState([]);
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [err, setErr] = useState("");
+  const usage = id => trainings.filter(t => t.catalog_id === id && t.status !== "discarded" && t.status !== "approved").length;
+  const q = search.trim().toLowerCase();
+  const shown = catalog.filter(c => !q || c.name.toLowerCase().includes(q) || `${c.training_categories?.group_name} ${c.training_categories?.name}`.toLowerCase().includes(q));
+  const toggle = id => setSelected(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
 
   return (
     <div>
       <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Training Catalog</h1>
-          <p className="text-sm text-muted-foreground mt-0.5 max-w-xl">Define each training once — its parts, whole-training reference links, and per-part links. When you assign it from the Dashboard, everything is pulled in automatically.</p>
+          <p className="text-sm text-muted-foreground mt-0.5">Keep trainings ready here, then assign them to reportees — one at a time or in bulk.</p>
         </div>
-        {!creating && !editId && <Button onClick={startCreate}><Plus className="h-4 w-4 mr-1.5" />New Training</Button>}
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}><Upload className="h-4 w-4 mr-1.5" />Bulk Import</Button>
+          <Button size="sm" onClick={() => setEditing("new")}><Plus className="h-4 w-4 mr-1.5" />Add Training</Button>
+        </div>
       </div>
 
-      {draft && (
-        <Card className="mb-5 border-indigo-200 shadow-md">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-2 text-[15px] font-bold mb-5">
-              {creating ? <><Sparkles className="h-4 w-4 text-indigo-600" />New Training</> : <><Pencil className="h-4 w-4 text-indigo-600" />Edit Training</>}
-            </div>
-
-            <div className="space-y-1.5 mb-4">
-              <Label>Training Name <span className="text-rose-500">*</span></Label>
-              <Input value={draft.name} onChange={e => dUpd("name", e.target.value)} placeholder='e.g. "Advanced SQL for Analysts"' autoFocus />
-            </div>
-
-            <div className="space-y-1.5 mb-1">
-              <Label>Reference Material — whole training</Label>
-              <LinkListEditor links={draft.resources} setLinks={fn => dUpd("resources", typeof fn === "function" ? fn(draft.resources) : fn)} addLabel="Add training link" />
-              <p className="text-xs text-muted-foreground">Course links, internal docs, videos that apply to the entire training. Shown to the member for every part.</p>
-            </div>
-
-            <div className="bg-muted/50 border rounded-xl p-4 mt-4">
-              <div className="text-[13px] font-semibold mb-1">Parts / Modules <span className="text-muted-foreground font-normal">(optional)</span></div>
-              <p className="text-xs text-muted-foreground mb-3.5">For big trainings, break it into parts. Each part can have its own reference links. Leave empty for a single-step training.</p>
-              <CatalogPartEditor parts={draft.parts} setParts={fn => dUpd("parts", typeof fn === "function" ? fn(draft.parts) : fn)} />
-            </div>
-
-            <div className="flex gap-2.5 mt-5">
-              <Button variant="outline" className="flex-1" onClick={cancelEdit}>Cancel</Button>
-              <Button className="flex-[2]" disabled={!draft.name.trim()} onClick={commitDraft}>{creating ? "Add to Catalog" : "Save Changes"}</Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {saved && !draft && <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3.5 py-2.5 text-[13px] text-emerald-700 font-semibold mb-4">✅ Catalog saved.</div>}
-
-      {local.length === 0 && !draft ? (
-        <Card className="border-dashed">
-          <CardContent className="p-12 text-center text-muted-foreground">
-            <Library className="h-8 w-8 mx-auto mb-3 opacity-40" />
-            <p className="text-sm mb-4">Your catalog is empty.</p>
-            <Button onClick={startCreate}><Plus className="h-4 w-4 mr-1.5" />Create your first training</Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {local.map(item => {
-            if (editId === item.id) return null;
-            const parts = item.parts || []; const res = cleanLinks(item.resources);
-            const used = usage(item); const locked = used > 0;
-            return (
-              <Card key={item.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-5">
-                  <div className="flex items-start gap-3">
-                    <div className="h-9 w-9 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0"><GraduationCap className="h-[18px] w-[18px] text-indigo-600" /></div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap mb-2">
-                        <span className="text-[14.5px] font-semibold">{item.name}</span>
-                        {parts.length > 0
-                          ? <span className="bg-indigo-100 text-indigo-700 text-[11px] font-bold px-2 py-0.5 rounded-full">{parts.length} Parts</span>
-                          : <Badge variant="outline" className="text-muted-foreground font-medium">Single step</Badge>}
-                        <span className={cn("text-[11.5px]", locked ? "text-indigo-700 font-semibold" : "text-muted-foreground")}>· {used} assigned</span>
-                      </div>
-                      {res.length > 0 && <div className="mb-2.5"><div className="text-[11px] text-muted-foreground mb-1.5">Training links</div><LinkChips links={res} /></div>}
-                      {parts.length > 0 && (
-                        <div className="space-y-1.5">
-                          {parts.map((p, i) => { const pl = cleanLinks(p.resources); return (
-                            <div key={p.id || i} className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
-                              <span className="h-[18px] w-[18px] rounded bg-muted border flex items-center justify-center text-[10px] font-bold shrink-0">{i + 1}</span>
-                              <span className="text-foreground">{p.title}</span>
-                              {pl.length > 0 && <span className="text-[10.5px] text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-1.5 py-px font-semibold inline-flex items-center gap-0.5"><Link2 className="h-2.5 w-2.5" />{pl.length}</span>}
-                            </div>
-                          ); })}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex gap-2 shrink-0">
-                      <Button variant="outline" size="sm" onClick={() => startEdit(item)}><Pencil className="h-3.5 w-3.5 mr-1" />Edit</Button>
-                      <Button variant="outline" size="icon" disabled={locked} title={locked ? "Cannot delete — currently assigned" : "Delete"} className={cn(!locked && "text-rose-600 border-rose-200 hover:bg-rose-50")} onClick={() => requestRemove(item)}><Trash2 className="h-4 w-4" /></Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-          <p className="text-xs text-muted-foreground pt-1">🔒 Trainings currently assigned to members cannot be deleted.</p>
+      <div className="flex gap-2.5 mb-4 flex-wrap">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or category..." className="pl-9" />
         </div>
-      )}
+        {canAssign && selected.length > 0 && <Button onClick={() => onBulkAssign(selected)}><Users className="h-4 w-4 mr-1.5" />Assign {selected.length} selected</Button>}
+      </div>
+      {err && <p className="text-sm text-rose-600 mb-3">⚠ {err}</p>}
 
+      <Card className="overflow-hidden">
+        {shown.length === 0 ? (
+          <div className="p-11 text-center text-sm text-muted-foreground">{catalog.length ? "No matches." : "The catalog is empty. Add a training or bulk-import an Excel sheet to get started."}</div>
+        ) : shown.map((c, i) => {
+          const used = usage(c.id);
+          return (
+            <div key={c.id} className={cn("flex items-center gap-3 px-5 py-3.5", i < shown.length - 1 && "border-b")}>
+              {canAssign && <Checkbox checked={selected.includes(c.id)} onCheckedChange={() => toggle(c.id)} />}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-semibold text-sm">{c.name}</span>
+                  <span className="text-[11px] font-medium capitalize bg-muted text-muted-foreground rounded-full px-2 py-0.5">{c.priority}</span>
+                  {(c.parts || []).length > 0 && <span className="bg-indigo-100 text-indigo-700 text-[11px] font-bold px-2 py-0.5 rounded-full">{c.parts.length} parts</span>}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1 flex gap-3 flex-wrap">
+                  <span>{c.training_categories ? `${c.training_categories.group_name} · ${c.training_categories.name}` : "No category"}</span>
+                  <span>{MODE_OPTIONS.find(m => m.value === c.mode)?.label}{c.trainer ? ` · ${c.trainer}` : ""}</span>
+                  <a href={safeUrl(c.training_link)} target="_blank" rel="noreferrer" className="text-indigo-700 hover:underline inline-flex items-center gap-1"><Link2 className="h-3 w-3" />Material</a>
+                  <span className={cn(used && "text-indigo-700 font-medium")}>{used} active</span>
+                </div>
+              </div>
+              {canAssign && <Button size="sm" variant="outline" onClick={() => onAssign(c.id)}>Assign</Button>}
+              <Button size="icon" variant="ghost" className="text-muted-foreground" onClick={() => setEditing(c)}><Pencil className="h-4 w-4" /></Button>
+              <Button size="icon" variant="ghost" className="text-muted-foreground hover:text-rose-600" disabled={used > 0}
+                title={used ? "Currently assigned to reportees — can't delete" : "Delete from catalog"} onClick={() => setConfirmDel(c)}><Trash2 className="h-4 w-4" /></Button>
+            </div>
+          );
+        })}
+      </Card>
+      <p className="text-xs text-muted-foreground mt-2">🔒 Trainings someone is still working on can't be deleted from the catalog.</p>
+
+      {editing && <CatalogItemModal item={editing === "new" ? null : editing} categories={categories} onClose={() => setEditing(null)} onSubmit={async item => { await onSave(item); setEditing(null); }} />}
+      {importOpen && <ImportModal categories={categories} catalog={catalog} onClose={() => setImportOpen(false)} onImport={async rows => { await onImport(rows); setImportOpen(false); }} />}
       <ConfirmDialog
-        open={!!delTarget}
-        title="Delete training?"
-        body={delTarget ? `"${delTarget.name}" will be removed from the catalog. This can't be undone.` : ""}
+        open={!!confirmDel} danger
+        title={`Delete "${confirmDel?.name}" from the catalog?`}
+        body="Trainings already completed from it are not affected."
         confirmLabel="Delete"
-        danger
-        onConfirm={confirmRemove}
-        onCancel={() => setDelTarget(null)}
+        onConfirm={async () => { const c = confirmDel; setConfirmDel(null); setErr(""); try { await onDelete(c.id); } catch (e) { setErr(e.message); } }}
+        onCancel={() => setConfirmDel(null)}
       />
     </div>
   );
 }
 
 // ── REMINDERS ─────────────────────────────────────────────────────────────────
-function Reminders({ users, trainings, settings, onSaveSettings, onMarkReminded }) {
+function Reminders({ reportees, trainings, settings, onSaveSettings, onMarkReminded }) {
   const [pd, setPd] = useState(settings.pendingReminderDays); const [od, setOd] = useState(settings.overdueReminderDays);
   const [savedS, setSavedS] = useState(false); const [copied, setCopied] = useState(false);
-  const allPending = trainings.filter(t => { const s = getEffStatus(t); return s === "pending" || s === "in-progress"; });
-  const dueFor = allPending.filter(t => { const ov = isOverdue(t.dueDate), thr = ov ? Number(settings.overdueReminderDays) || 3 : Number(settings.pendingReminderDays) || 7, sb = t.lastReminderSent || (ov ? t.dueDate : t.assignedDate); return daysSince(sb) >= thr; });
+  const allPending = trainings.filter(t => isOpenStatus(getEffStatus(t)));
+  const dueFor = allPending.filter(t => { const ov = isOverdue(t.due_date), thr = ov ? Number(settings.overdueReminderDays) || 3 : Number(settings.pendingReminderDays) || 7, sb = t.last_reminder_sent || (ov ? t.due_date : t.assigned_date); return daysSince(sb) >= thr; });
   const buildBody = list => {
-    const g = list.reduce((acc, t) => { const u = users.find(x => x.id === t.userId); if (!u) return acc; acc[u.id] = acc[u.id] || { user: u, items: [] }; acc[u.id].items.push(t); return acc; }, {});
+    const g = list.reduce((acc, t) => { const u = reportees.find(x => x.id === t.assigned_to); if (!u) return acc; acc[u.id] = acc[u.id] || { user: u, items: [] }; acc[u.id].items.push(t); return acc; }, {});
     return "Hi team,\n\nThis is a reminder about your pending training(s):\n\n" +
-      Object.values(g).map(({ user, items }) => `${user.name}:\n${items.map(t => { const { done, total } = getUnits(t); return `  • ${t.title}${hasParts(t) ? ` [${done}/${total} parts done]` : ""}${t.dueDate ? ` — Due: ${fmtDate(t.dueDate)}${isOverdue(t.dueDate) ? " (OVERDUE)" : ""}` : ""}`; }).join("\n")}`).join("\n\n") +
-      "\n\nPlease complete your pending trainings at the earliest and log your learnings on the Knowledge Hub.\n\nThanks,\nYour Supervisor";
+      Object.values(g).map(({ user, items }) => `${user.full_name}:\n${items.map(t => { const { done, total } = getUnits(t); return `  • ${t.name}${hasParts(t) ? ` [${done}/${total} parts done]` : ""}${t.due_date ? ` — Due: ${fmtDate(t.due_date)}${isOverdue(t.due_date) ? " (OVERDUE)" : ""}` : ""}`; }).join("\n")}`).join("\n\n") +
+      "\n\nPlease complete your pending trainings at the earliest and log your learnings on the Knowledge Hub.\n\nThanks,\nYour Manager";
   };
-  const send = list => { const emails = [...new Set(list.map(t => users.find(u => u.id === t.userId)?.email).filter(Boolean))].join(","); window.open(`mailto:${emails}?subject=${encodeURIComponent("Training Reminder — Action Required")}&body=${encodeURIComponent(buildBody(list))}`, "_self"); onMarkReminded(list.map(t => t.id)); };
+  const send = list => { const emails = [...new Set(list.map(t => reportees.find(u => u.id === t.assigned_to)?.email).filter(Boolean))].join(","); window.open(`mailto:${emails}?subject=${encodeURIComponent("Training Reminder — Action Required")}&body=${encodeURIComponent(buildBody(list))}`, "_self"); onMarkReminded(list.map(t => t.id)); };
   const copy = list => { navigator.clipboard.writeText(buildBody(list)); setCopied(true); setTimeout(() => setCopied(false), 2000); };
-  const saveS = async () => { await onSaveSettings({ ...settings, pendingReminderDays: Number(pd) || 1, overdueReminderDays: Number(od) || 1 }); setSavedS(true); setTimeout(() => setSavedS(false), 2500); };
+  const saveS = async () => { await onSaveSettings({ pendingReminderDays: Number(pd) || 1, overdueReminderDays: Number(od) || 1 }); setSavedS(true); setTimeout(() => setSavedS(false), 2500); };
 
   return (
     <div>
@@ -1503,12 +1883,12 @@ function Reminders({ users, trainings, settings, onSaveSettings, onMarkReminded 
               </div>
             )}
           </div>
-          {dueFor.map(t => { const u = users.find(x => x.id === t.userId); return (
+          {dueFor.map(t => { const u = reportees.find(x => x.id === t.assigned_to); return (
             <div key={t.id} className={cn("flex items-center gap-2.5 text-[13px] py-2 border-t", dueFor.length ? "border-rose-200" : "border-emerald-200")}>
-              <UAvatar name={u?.name || "?"} color={u?.color} className="h-6 w-6" />
-              <span className="font-medium">{u?.name}</span><span className="text-muted-foreground">— {t.title}</span>
+              <UAvatar name={u?.full_name || "?"} color={u?.color} className="h-6 w-6" />
+              <span className="font-medium">{u?.full_name}</span><span className="text-muted-foreground">— {t.name}</span>
               {partsLabel(t) && <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-1.5 py-px rounded-full">{partsLabel(t)}</span>}
-              <StatusBadge status={getEffStatus(t)} dueDate={t.dueDate} />
+              <StatusBadge status={getEffStatus(t)} dueDate={t.due_date} />
             </div>
           ); })}
         </CardContent>
@@ -1518,12 +1898,12 @@ function Reminders({ users, trainings, settings, onSaveSettings, onMarkReminded 
         <CardContent className="p-5">
           <SectionLabel>All Pending Trainings</SectionLabel>
           {allPending.length === 0 ? <p className="text-center py-6 text-muted-foreground text-[13px]">Nothing pending — great job team! 🎉</p>
-            : allPending.map(t => { const u = users.find(x => x.id === t.userId), ov = isOverdue(t.dueDate), thr = ov ? settings.overdueReminderDays : settings.pendingReminderDays, ni = Math.max(0, thr - daysSince(t.lastReminderSent || (ov ? t.dueDate : t.assignedDate))); return (
+            : allPending.map(t => { const u = reportees.find(x => x.id === t.assigned_to), ov = isOverdue(t.due_date), thr = ov ? settings.overdueReminderDays : settings.pendingReminderDays, ni = Math.max(0, thr - daysSince(t.last_reminder_sent || (ov ? t.due_date : t.assigned_date))); return (
               <div key={t.id} className="flex items-center gap-2.5 text-[13px] py-2.5 border-b last:border-0">
-                <UAvatar name={u?.name || "?"} color={u?.color} className="h-6 w-6" />
-                <span className="font-medium">{u?.name}</span><span className="text-muted-foreground flex-1">{t.title}</span>
+                <UAvatar name={u?.full_name || "?"} color={u?.color} className="h-6 w-6" />
+                <span className="font-medium">{u?.full_name}</span><span className="text-muted-foreground flex-1">{t.name}</span>
                 {partsLabel(t) && <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-1.5 py-px rounded-full">{partsLabel(t)}</span>}
-                <StatusBadge status={getEffStatus(t)} dueDate={t.dueDate} />
+                <StatusBadge status={getEffStatus(t)} dueDate={t.due_date} />
                 <span className={cn("text-[11.5px] min-w-[92px] text-right", ni === 0 ? "text-rose-600" : "text-muted-foreground")}>{ni === 0 ? "Reminder due" : `Next in ${ni}d`}</span>
               </div>
             ); })}
@@ -1534,75 +1914,110 @@ function Reminders({ users, trainings, settings, onSaveSettings, onMarkReminded 
 }
 
 // ── SETTINGS ──────────────────────────────────────────────────────────────────
-function Settings({ users, trainings, currentFY, onSaveUsers, onReset, onFinalizeYear }) {
-  const [local, setLocal] = useState(users); const [saved, setSaved] = useState(false);
-  const [addForm, setAddForm] = useState(false); const [newU, setNewU] = useState({ name: "", email: "", color: COLORS[0] });
+// Result of an invite / setup-link send: either the email went out, or we show
+// the link so it can be shared manually (e.g. when SMTP isn't configured yet).
+function InviteResult({ result, onDismiss }) {
+  const [copied, setCopied] = useState(false);
+  if (!result) return null;
+  const copy = () => { navigator.clipboard.writeText(result.invite_link); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+  return (
+    <Card className={cn("mb-5", result.email_sent ? "border-emerald-200 bg-emerald-50/60" : "border-amber-200 bg-amber-50/60")}>
+      <CardContent className="p-5">
+        {result.email_sent ? (
+          <>
+            <div className="flex items-center gap-2 text-sm font-bold text-emerald-800 mb-1"><Mail className="h-4 w-4" />Email sent to {result.email}</div>
+            <p className="text-[13px] text-emerald-800">They'll get a link to set their own password, then sign in with their email.</p>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 text-sm font-bold text-amber-800 mb-1"><AlertCircle className="h-4 w-4" />Account ready — but the email couldn't be sent</div>
+            <p className="text-[13px] text-amber-800 mb-2">Share this one-time link with <strong>{result.email}</strong> (Teams / Outlook). It opens TrainTrack and asks them to set a password.</p>
+            <div className="bg-card border rounded-lg p-3 text-[12px] font-mono flex items-center justify-between gap-2">
+              <span className="truncate">{result.invite_link}</span>
+              <Button variant="outline" size="sm" onClick={copy}><Copy className="h-3.5 w-3.5 mr-1" />{copied ? "Copied!" : "Copy"}</Button>
+            </div>
+            {result.email_error && <p className="text-[11px] text-amber-700 mt-2">Email error: {result.email_error}</p>}
+          </>
+        )}
+        <Button variant="ghost" size="sm" className="mt-2" onClick={onDismiss}>Dismiss</Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Settings({ reportees, trainings, currentFY, onAddReportee, onToggleActive, onSendLink, onFinalizeYear, onRefreshReportees }) {
+  const [addForm, setAddForm] = useState(false);
+  const [newU, setNewU] = useState({ full_name: "", email: "", color: COLORS[0] });
+  const [creating, setCreating] = useState(false);
+  const [created, setCreated] = useState(null); // { email, email_sent, invite_link? }
+  const [busyId, setBusyId] = useState(null);
   const [choices, setChoices] = useState({});
   const [confirmFinalize, setConfirmFinalize] = useState(false);
-  const [confirmReset, setConfirmReset] = useState(false);
-  useEffect(() => { setLocal(users); }, [users]);
-  const chg = (id, f, v) => setLocal(p => p.map(u => u.id === id ? { ...u, [f]: v } : u));
-  const rm = id => setLocal(p => p.filter(u => u.id !== id));
-  const rstPin = id => setLocal(p => p.map(u => u.id === id ? { ...u, pin: "", pinSet: false } : u));
-  const save = async () => { await onSaveUsers(local); setSaved(true); setTimeout(() => setSaved(false), 2500); };
-  const addM = () => { if (!newU.name.trim() || !newU.email.trim()) return; setLocal(p => [...p, { id: uid("u"), name: newU.name.trim(), email: newU.email.trim(), pin: "", pinSet: false, role: "member", color: newU.color }]); setNewU({ name: "", email: "", color: COLORS[0] }); setAddForm(false); };
-  const yfPending = trainings.filter(t => t.fy === currentFY && (getEffStatus(t) === "pending" || getEffStatus(t) === "in-progress"));
-  const finalize = () => setConfirmFinalize(true);
-  const doFinalize = () => { const d = yfPending.map(t => ({ id: t.id, action: choices[t.id] || "carry" })); setConfirmFinalize(false); onFinalizeYear(d); };
+  const [err, setErr] = useState("");
+
+  const addM = async () => {
+    if (!newU.full_name.trim() || !newU.email.trim()) return;
+    setCreating(true); setErr("");
+    try {
+      const res = await onAddReportee({ full_name: newU.full_name.trim(), email: newU.email.trim(), color: newU.color, role: "reportee" });
+      setCreated(res); setNewU({ full_name: "", email: "", color: COLORS[0] }); setAddForm(false);
+      await onRefreshReportees();
+    } catch (e) { setErr(e.message); }
+    setCreating(false);
+  };
+  const rowAction = async (id, fn) => {
+    setBusyId(id); setErr("");
+    try { const res = await fn(); if (res?.email) setCreated(res); } catch (e) { setErr(e.message); }
+    setBusyId(null);
+  };
+
+  const yfPending = trainings.filter(t => t.fy === currentFY && isOpenStatus(getEffStatus(t)));
+  const doFinalize = async () => { const d = yfPending.map(t => ({ id: t.id, action: choices[t.id] || "carry" })); setConfirmFinalize(false); await onFinalizeYear(d); };
 
   return (
     <div>
       <div className="mb-5">
-        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Manage team members, logins, financial year & sharing</p>
+        <h1 className="text-2xl font-bold tracking-tight">Team & Settings</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">Manage reportees and the financial year</p>
       </div>
 
-      <Card className="mb-5 border-indigo-200 bg-indigo-50/50">
-        <CardContent className="p-5">
-          <div className="flex items-center gap-2 text-sm font-bold text-indigo-800 mb-2"><ShieldCheck className="h-4 w-4" />How to Share with Your Team</div>
-          <ol className="text-[13px] text-indigo-800 leading-loose list-decimal pl-5">
-            <li>Click the <strong>Share button</strong> on this artifact (top-right on Claude.ai)</li>
-            <li>Send the link to your team via email or chat</li>
-            <li>Each member needs a <strong>free Claude account</strong> to open the link</li>
-            <li>First login: member verifies their <strong>registered email</strong> and sets their own personal PIN</li>
-          </ol>
-        </CardContent>
-      </Card>
+      <InviteResult result={created} onDismiss={() => setCreated(null)} />
 
       <Card className="mb-4">
         <CardContent className="p-6">
           <div className="flex items-center justify-between mb-4">
-            <SectionLabel className="mb-0">Team Members</SectionLabel>
-            <Button size="sm" onClick={() => setAddForm(!addForm)}><Plus className="h-3.5 w-3.5 mr-1" />Add Member</Button>
+            <SectionLabel className="mb-0">Reportees</SectionLabel>
+            <Button size="sm" onClick={() => setAddForm(!addForm)}><Plus className="h-3.5 w-3.5 mr-1" />Add Reportee</Button>
           </div>
           {addForm && (
             <div className="bg-muted/50 border rounded-xl p-4 mb-4">
-              <div className="text-[13px] font-semibold mb-3">New Team Member</div>
+              <div className="text-[13px] font-semibold mb-3">New Reportee</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2.5">
-                <Input value={newU.name} onChange={e => setNewU(p => ({ ...p, name: e.target.value }))} placeholder="Full name *" />
+                <Input value={newU.full_name} onChange={e => setNewU(p => ({ ...p, full_name: e.target.value }))} placeholder="Full name *" />
                 <Input value={newU.email} onChange={e => setNewU(p => ({ ...p, email: e.target.value }))} placeholder="Email address *" type="email" />
               </div>
               <div className="flex items-center gap-2 mb-3">
                 <span className="text-xs text-muted-foreground">Color:</span>
                 <div className="flex gap-1.5 flex-wrap">{COLORS.map(c => <button key={c} onClick={() => setNewU(p => ({ ...p, color: c }))} className={cn("h-[22px] w-[22px] rounded-full transition", newU.color === c ? "ring-2 ring-offset-2 ring-foreground" : "")} style={{ background: c, width: 22, height: 22 }} />)}</div>
               </div>
-              <p className="text-xs text-muted-foreground mb-3">Member will set their own PIN on first login by verifying this email.</p>
-              <div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => setAddForm(false)}>Cancel</Button><Button size="sm" disabled={!newU.name.trim() || !newU.email.trim()} onClick={addM}>Add Member</Button></div>
+              <p className="text-xs text-muted-foreground mb-2.5">They'll get an email with a link to set their password.</p>
+              <div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => setAddForm(false)}>Cancel</Button><Button size="sm" disabled={!newU.full_name.trim() || !newU.email.trim() || creating} onClick={addM}>{creating ? "Creating…" : "Add & send invite"}</Button></div>
             </div>
           )}
+          {err && <p className="text-sm text-rose-600 mb-2">⚠ {err}</p>}
           <div className="space-y-3">
-            {local.map(u => (
-              <div key={u.id} className="flex items-center gap-3">
-                <button onClick={() => chg(u.id, "color", COLORS[(COLORS.indexOf(u.color) + 1) % COLORS.length])} title="Click to change colour"><UAvatar name={u.name} color={u.color} className="h-8 w-8" /></button>
-                <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2"><Input value={u.name} onChange={e => chg(u.id, "name", e.target.value)} placeholder="Name" /><Input value={u.email} onChange={e => chg(u.id, "email", e.target.value)} placeholder="Email" type="email" /></div>
-                <span className={cn("text-[11px] font-semibold px-2.5 py-1 rounded-md min-w-[86px] text-center", u.pinSet ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>{u.pinSet ? "🔒 PIN set" : "⏳ Not set"}</span>
-                {u.pinSet && u.role === "member" && <Button variant="outline" size="sm" onClick={() => rstPin(u.id)}>Reset PIN</Button>}
-                <Badge variant="outline" className={cn("capitalize font-semibold shrink-0", u.role === "supervisor" ? "bg-violet-100 text-violet-700 border-violet-200" : "bg-emerald-100 text-emerald-700 border-emerald-200")}>{u.role}</Badge>
-                {u.role === "member" && <Button variant="ghost" size="icon" className="text-rose-400 shrink-0" onClick={() => rm(u.id)}><X className="h-4 w-4" /></Button>}
+            {reportees.map(u => (
+              <div key={u.id} className="flex items-center gap-3 flex-wrap">
+                <UAvatar name={u.full_name} color={u.color} className="h-8 w-8" />
+                <div className="flex-1 min-w-0"><div className="text-[13px] font-medium truncate">{u.full_name}</div><div className="text-[11px] text-muted-foreground truncate">{u.email}</div></div>
+                {u.must_change_password && u.is_active && <span className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-amber-100 text-amber-700">Invite pending</span>}
+                <span className={cn("text-[11px] font-semibold px-2.5 py-1 rounded-md", u.is_active ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground")}>{u.is_active ? "Active" : "Inactive"}</span>
+                {u.is_active && <Button variant="outline" size="sm" disabled={busyId === u.id} onClick={() => rowAction(u.id, () => onSendLink(u))}><Send className="h-3.5 w-3.5 mr-1" />Send setup link</Button>}
+                <Button variant="outline" size="sm" disabled={busyId === u.id} onClick={() => rowAction(u.id, () => onToggleActive(u))}>{u.is_active ? "Deactivate" : "Reactivate"}</Button>
               </div>
             ))}
+            {reportees.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No reportees yet.</p>}
           </div>
-          <Button onClick={save} className={cn("mt-4", saved && "bg-emerald-600 hover:bg-emerald-600")}>{saved ? "✅ Saved!" : "Save Changes"}</Button>
         </CardContent>
       </Card>
 
@@ -1613,10 +2028,10 @@ function Settings({ users, trainings, currentFY, onSaveUsers, onReset, onFinaliz
           {yfPending.length === 0 ? (
             <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-4 text-[13px] text-emerald-700 mb-3.5">🎉 No pending trainings in FY {currentFY}.</div>
           ) : (
-            <div className="mb-3.5">{yfPending.map(t => { const u = users.find(x => x.id === t.userId), { done, total } = getUnits(t); return (
+            <div className="mb-3.5">{yfPending.map(t => { const u = reportees.find(x => x.id === t.assigned_to), { done, total } = getUnits(t); return (
               <div key={t.id} className="flex items-center gap-2.5 py-2.5 border-b last:border-0 text-[13px]">
-                <UAvatar name={u?.name || "?"} color={u?.color} className="h-6 w-6" />
-                <span className="flex-1">{u?.name} — {t.title}{hasParts(t) ? <span className="text-indigo-600 ml-1.5">({done}/{total} parts done)</span> : ""}</span>
+                <UAvatar name={u?.full_name || "?"} color={u?.color} className="h-6 w-6" />
+                <span className="flex-1">{u?.full_name} — {t.name}{hasParts(t) ? <span className="text-indigo-600 ml-1.5">({done}/{total} parts done)</span> : ""}</span>
                 <Select value={choices[t.id] || "carry"} onValueChange={v => setChoices(p => ({ ...p, [t.id]: v }))}>
                   <SelectTrigger className="w-[220px] h-9"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -1627,15 +2042,7 @@ function Settings({ users, trainings, currentFY, onSaveUsers, onReset, onFinaliz
               </div>
             ); })}</div>
           )}
-          <Button onClick={finalize} className="bg-emerald-600 hover:bg-emerald-700">Finalize FY {currentFY} → Start FY {nextFY(currentFY)}</Button>
-        </CardContent>
-      </Card>
-
-      <Card className="border-rose-200 bg-rose-50/50">
-        <CardContent className="p-5">
-          <div className="text-sm font-bold text-rose-800 mb-1.5">⚠ Danger Zone</div>
-          <p className="text-[13px] text-rose-700 mb-3.5">Permanently deletes all data and resets to a completely fresh, empty state. Cannot be undone.</p>
-          <Button variant="outline" className="text-rose-600 border-rose-300 hover:bg-rose-100" onClick={() => setConfirmReset(true)}><Trash2 className="h-4 w-4 mr-1.5" />Reset All Data (Fresh Start)</Button>
+          <Button onClick={() => setConfirmFinalize(true)} className="bg-emerald-600 hover:bg-emerald-700">Finalize FY {currentFY} → Start FY {nextFY(currentFY)}</Button>
         </CardContent>
       </Card>
 
@@ -1647,21 +2054,162 @@ function Settings({ users, trainings, currentFY, onSaveUsers, onReset, onFinaliz
         onConfirm={doFinalize}
         onCancel={() => setConfirmFinalize(false)}
       />
-      <ConfirmDialog
-        open={confirmReset}
-        title="Reset all data?"
-        body="This deletes every member, training and catalog entry, and returns the app to a fresh empty state. This cannot be undone."
-        confirmLabel="Reset everything"
-        danger
-        onConfirm={() => { setConfirmReset(false); onReset(); }}
-        onCancel={() => setConfirmReset(false)}
-      />
+    </div>
+  );
+}
+
+// ── USERS (admin / HR) ────────────────────────────────────────────────────────
+function UserFormModal({ user, managers, onSubmit, onClose }) {
+  const [f, setF] = useState({ full_name: user?.full_name || "", email: user?.email || "", role: user?.role || "reportee", manager_id: user?.manager_id || "", color: user?.color || COLORS[0] });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const mgrOptions = managers.filter(m => m.id !== user?.id);
+  const ok = f.full_name.trim() && f.email.trim() && (f.role !== "reportee" || f.manager_id);
+  const submit = async () => {
+    setBusy(true); setErr("");
+    try { await onSubmit({ ...f, manager_id: f.role === "admin" ? null : f.manager_id || null }); }
+    catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <ModalContent size="md">
+        <DialogHeader>
+          <DialogTitle>{user ? "Edit User" : "Add User"}</DialogTitle>
+          <DialogDescription>{user ? user.email : "They'll get an email with a link to set their password."}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5"><Label>Full name <span className="text-rose-500">*</span></Label><Input value={f.full_name} onChange={e => set("full_name", e.target.value)} /></div>
+        {!user && <div className="space-y-1.5"><Label>Email <span className="text-rose-500">*</span></Label><Input type="email" value={f.email} onChange={e => set("email", e.target.value)} placeholder="name@o2h.com" /></div>}
+        <div className="space-y-1.5">
+          <Label>Role</Label>
+          <Select value={f.role} onValueChange={v => set("role", v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>{Object.entries(ROLE_LABELS).map(([r, l]) => <SelectItem key={r} value={r}>{l}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        {f.role !== "admin" && (
+          <div className="space-y-1.5">
+            <Label>Reporting Manager {f.role === "reportee" && <span className="text-rose-500">*</span>}</Label>
+            <Select value={f.manager_id || "__none__"} onValueChange={v => set("manager_id", v === "__none__" ? "" : v)}>
+              <SelectTrigger><SelectValue placeholder="Select manager" /></SelectTrigger>
+              <SelectContent>
+                {f.role !== "reportee" && <SelectItem value="__none__">— None —</SelectItem>}
+                {mgrOptions.map(m => <SelectItem key={m.id} value={m.id}>{m.full_name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {mgrOptions.length === 0 && <p className="text-xs text-amber-700">No managers yet — add a Reporting Manager first.</p>}
+          </div>
+        )}
+        {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button className="flex-[2]" disabled={!ok || busy} onClick={submit}>{busy ? "Saving…" : user ? "Save changes" : "Add & send invite"}</Button>
+        </DialogFooter>
+      </ModalContent>
+    </Dialog>
+  );
+}
+
+function UsersAdmin({ me, people, onCreate, onUpdate, onToggleActive, onSendLink }) {
+  const [search, setSearch] = useState("");
+  const [roleF, setRoleF] = useState("all");
+  const [editing, setEditing] = useState(null); // null | "new" | profile
+  const [result, setResult] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+  const [err, setErr] = useState("");
+  const managers = people.filter(p => p.role === "reporting_manager");
+  const nameOf = id => people.find(p => p.id === id)?.full_name;
+  const q = search.trim().toLowerCase();
+  const shown = people.filter(p => (roleF === "all" || p.role === roleF) && (!q || p.full_name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q)));
+  const rowAction = async (id, fn) => {
+    setBusyId(id); setErr("");
+    try { const res = await fn(); if (res?.email) setResult(res); } catch (e) { setErr(e.message); }
+    setBusyId(null);
+  };
+
+  return (
+    <div>
+      <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Users</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Add managers and reportees, set reporting lines, and control access.</p>
+        </div>
+        <Button size="sm" onClick={() => setEditing("new")}><Plus className="h-4 w-4 mr-1.5" />Add User</Button>
+      </div>
+      <InviteResult result={result} onDismiss={() => setResult(null)} />
+      <div className="flex gap-2.5 mb-4 flex-wrap">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or email..." className="pl-9" />
+        </div>
+        <Select value={roleF} onValueChange={setRoleF}>
+          <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All roles</SelectItem>
+            {Object.entries(ROLE_LABELS).map(([r, l]) => <SelectItem key={r} value={r}>{l}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      {err && <p className="text-sm text-rose-600 mb-3">⚠ {err}</p>}
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/50 border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="font-medium px-4 py-3">User</th>
+                <th className="font-medium px-3 py-3">Role</th>
+                <th className="font-medium px-3 py-3">Reporting Manager</th>
+                <th className="font-medium px-3 py-3">Status</th>
+                <th className="px-3 py-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map(p => (
+                <tr key={p.id} className="border-b last:border-0">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <UAvatar name={p.full_name} color={p.color} className="h-7 w-7" />
+                      <div className="min-w-0"><div className="font-medium truncate">{p.full_name}{p.id === me.id && <span className="text-muted-foreground font-normal"> (you)</span>}</div><div className="text-[11px] text-muted-foreground truncate">{p.email}</div></div>
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 text-[13px]">{ROLE_LABELS[p.role]}</td>
+                  <td className="px-3 py-3 text-[13px] text-muted-foreground">{nameOf(p.manager_id) || "—"}</td>
+                  <td className="px-3 py-3">
+                    <span className={cn("text-[11px] font-semibold px-2 py-1 rounded-md", !p.is_active ? "bg-muted text-muted-foreground" : p.must_change_password ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700")}>
+                      {!p.is_active ? "Inactive" : p.must_change_password ? "Invite pending" : "Active"}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3">
+                    <div className="flex gap-1.5 justify-end">
+                      <Button size="icon" variant="ghost" className="text-muted-foreground" title="Edit" onClick={() => setEditing(p)}><Pencil className="h-4 w-4" /></Button>
+                      {p.is_active && p.id !== me.id && <Button size="sm" variant="outline" disabled={busyId === p.id} onClick={() => rowAction(p.id, () => onSendLink(p))}><Send className="h-3.5 w-3.5 mr-1" />Setup link</Button>}
+                      {p.id !== me.id && <Button size="sm" variant="outline" disabled={busyId === p.id} onClick={() => rowAction(p.id, () => onToggleActive(p))}>{p.is_active ? "Deactivate" : "Reactivate"}</Button>}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {shown.length === 0 && <tr><td colSpan={5} className="text-center text-muted-foreground py-8">No users found.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+      {editing && (
+        <UserFormModal
+          user={editing === "new" ? null : editing} managers={managers} onClose={() => setEditing(null)}
+          onSubmit={async f => {
+            if (editing === "new") setResult(await onCreate(f));
+            else await onUpdate(editing.id, { full_name: f.full_name, role: f.role, manager_id: f.manager_id });
+            setEditing(null);
+          }}
+        />
+      )}
     </div>
   );
 }
 
 // ── EXPORT MODAL ──────────────────────────────────────────────────────────────
-function ExportModal({ users, trainings, fyList, currentFY, onClose }) {
+function ExportModal({ reportees, trainings, requests, fyList, currentFY, onClose }) {
   const [selFYs, setSelFYs] = useState([currentFY]); const [exporting, setExporting] = useState(false);
   const tog = fy => setSelFYs(p => p.includes(fy) ? p.filter(f => f !== fy) : [...p, fy]);
 
@@ -1670,18 +2218,17 @@ function ExportModal({ users, trainings, fyList, currentFY, onClose }) {
     try {
       const XLSX = window.XLSX || (() => { throw new Error("XLSX not loaded"); })();
       const wb = XLSX.utils.book_new();
-      const members = users.filter(u => u.role === "member");
 
       const s1 = [
         ["TrainTrack — Team Performance Report"],
         [`Generated: ${new Date().toLocaleDateString("en-IN")}`], [""],
         ["Member", ...selFYs.map(fy => `FY ${fy} Done/Total`), ...selFYs.map(fy => `FY ${fy} %`), "Overall Status"],
       ];
-      members.forEach(u => {
-        const row = [u.name];
-        selFYs.forEach(fy => { const ut = trainings.filter(t => t.userId === u.id && t.fy === fy); const tU = ut.reduce((s, t) => s + getUnits(t).total, 0); const dU = ut.reduce((s, t) => s + getUnits(t).done, 0); row.push(`${dU}/${tU}`); });
-        selFYs.forEach(fy => { const ut = trainings.filter(t => t.userId === u.id && t.fy === fy); const tU = ut.reduce((s, t) => s + getUnits(t).total, 0); const dU = ut.reduce((s, t) => s + getUnits(t).done, 0); row.push(tU ? `${Math.round(dU / tU * 100)}%` : "N/A"); });
-        const fyT = trainings.filter(t => selFYs.includes(t.fy) && t.userId === u.id && getEffStatus(t) !== "discarded");
+      reportees.forEach(u => {
+        const row = [u.full_name];
+        selFYs.forEach(fy => { const ut = trainings.filter(t => t.assigned_to === u.id && t.fy === fy); const tU = ut.reduce((s, t) => s + getUnits(t).total, 0); const dU = ut.reduce((s, t) => s + getUnits(t).done, 0); row.push(`${dU}/${tU}`); });
+        selFYs.forEach(fy => { const ut = trainings.filter(t => t.assigned_to === u.id && t.fy === fy); const tU = ut.reduce((s, t) => s + getUnits(t).total, 0); const dU = ut.reduce((s, t) => s + getUnits(t).done, 0); row.push(tU ? `${Math.round(dU / tU * 100)}%` : "N/A"); });
+        const fyT = trainings.filter(t => selFYs.includes(t.fy) && t.assigned_to === u.id && t.status !== "discarded");
         const ach = getAchievement(u, fyT);
         row.push(ach ? (ACHIEVEMENT[ach]?.emoji + " " + ACHIEVEMENT[ach]?.label) : "—");
         s1.push(row);
@@ -1690,17 +2237,17 @@ function ExportModal({ users, trainings, fyList, currentFY, onClose }) {
 
       const s2 = [["Member", "Training", "FY", "Type", "Part", "Status", "Due Date", "Completed Date", "Notes Preview"]];
       trainings.filter(t => selFYs.includes(t.fy)).forEach(t => {
-        const u = users.find(x => x.id === t.userId);
-        if (hasParts(t)) t.parts.forEach((p, pi) => s2.push([u?.name || "", t.title, t.fy, "Multi-Part", `Part ${pi + 1}: ${p.title}`, p.status === "completed" ? "Completed" : "Pending", t.dueDate || "", p.completedDate || "", (p.notes || "").substring(0, 100)]));
-        else { const s = getEffStatus(t); s2.push([u?.name || "", t.title, t.fy, "Single", "—", s === "completed" ? "Completed" : s === "discarded" ? "Discarded" : isOverdue(t.dueDate) ? "Overdue" : "Pending", t.dueDate || "", t.completedDate || "", (t.notes || "").substring(0, 100)]); }
+        const u = reportees.find(x => x.id === t.assigned_to);
+        if (hasParts(t)) sortedParts(t).forEach((p, pi) => { const r = reqFor(requests, t.id, p.id); s2.push([u?.full_name || "", t.name, t.fy, "Multi-Part", `Part ${pi + 1}: ${p.title}`, p.status === "approved" ? "Completed" : p.status, t.due_date || "", p.completed_date || "", (r?.notes || "").substring(0, 100)]); });
+        else { const s = getEffStatus(t); const r = reqFor(requests, t.id, null); s2.push([u?.full_name || "", t.name, t.fy, "Single", "—", s === "approved" ? "Completed" : s === "discarded" ? "Discarded" : isOverdue(t.due_date) ? "Overdue" : s, t.due_date || "", t.completed_date || "", (r?.notes || "").substring(0, 100)]); }
       });
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(s2), "Training Details");
 
       const s3 = [["Member", "Training", "FY", "Part", "Completed Date", "Key Learnings", "Outcome Links"]];
       trainings.filter(t => selFYs.includes(t.fy)).forEach(t => {
-        const u = users.find(x => x.id === t.userId);
-        if (hasParts(t)) t.parts.filter(p => p.status === "completed").forEach((p, pi) => s3.push([u?.name || "", t.title, t.fy, `Part ${pi + 1}: ${p.title}`, p.completedDate || "", p.notes || "", cleanLinks(p.outcomes).map(l => l.url).join(" | ")]));
-        else if (t.status === "completed") s3.push([u?.name || "", t.title, t.fy, "", t.completedDate || "", t.notes || "", cleanLinks(t.outcomes).map(l => l.url).join(" | ")]);
+        const u = reportees.find(x => x.id === t.assigned_to);
+        if (hasParts(t)) sortedParts(t).filter(p => p.status === "approved").forEach((p, pi) => { const r = reqFor(requests, t.id, p.id, "approved"); s3.push([u?.full_name || "", t.name, t.fy, `Part ${pi + 1}: ${p.title}`, p.completed_date || "", r?.notes || "", cleanLinks(r?.outcome_links).map(l => l.url).join(" | ")]); });
+        else if (t.status === "approved") { const r = reqFor(requests, t.id, null, "approved"); s3.push([u?.full_name || "", t.name, t.fy, "", t.completed_date || "", r?.notes || "", cleanLinks(r?.outcome_links).map(l => l.url).join(" | ")]); }
       });
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(s3), "Learnings & Notes");
 
@@ -1747,15 +2294,36 @@ function ExportModal({ users, trainings, fyList, currentFY, onClose }) {
 
 // ── ROOT ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [users, setUsers] = useState([]); const [trainings, setTrainings] = useState([]); const [catalog, setCatalog] = useState([]);
-  const [appSettings, setAppSettings] = useState(DEFAULT_SETTINGS); const [currentFY, setCurrentFY] = useState(getFY());
-  const [currentUser, setCurrent] = useState(null); const [tab, setTab] = useState("dashboard");
-  const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false);
-  const [completeTarget, setCompleteT] = useState(null); const [addModal, setAdd] = useState(false);
-  const [detailTarget, setDetailT] = useState(null); const [exportOpen, setExportOpen] = useState(false);
-  const [fyFilterD, setFyFilterD] = useState(getFY()); const [fyFilterM, setFyFilterM] = useState(getFY());
-  const [catalogNewSignal, setCatalogNewSignal] = useState(0);
+  const [session, setSession] = useState(undefined); // undefined = not checked yet, null = signed out
+  const [profile, setProfile] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loginRole, setLoginRole] = useState(null); // role picked on the login screen, verified once the profile loads
+  const [loginError, setLoginError] = useState("");
+  const [recovery, setRecovery] = useState(false);  // arrived via a password-reset link
 
+  const [reportees, setReportees] = useState([]);
+  const [people, setPeople] = useState([]);         // every profile visible to this user (name lookups, admin list)
+  const [catalog, setCatalog] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [trainings, setTrainings] = useState([]);
+  const [requests, setRequests] = useState([]);
+  const [approvals, setApprovals] = useState([]);
+  const [managerSettings, setManagerSettings] = useState(DEFAULT_SETTINGS);
+  const [currentFY, setCurrentFY] = useState(getFY());
+  const [dataLoading, setDataLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const [tab, setTab] = useState("dashboard");
+  const [requestTarget, setRequestT] = useState(null);
+  const [addModal, setAdd] = useState(false);         // false | { catalogId? }
+  const [bulkModal, setBulk] = useState(null);        // null | { ids }
+  const [editTarget, setEditT] = useState(null);
+  const [detailTarget, setDetailT] = useState(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [fyFilterD, setFyFilterD] = useState(getFY());
+  const [fyFilterM, setFyFilterM] = useState(getFY());
+
+  // One-time: XLSX loader + compat CSS (unchanged from the original build).
   useEffect(() => {
     if (!window.XLSX) {
       const s = document.createElement("script");
@@ -1765,8 +2333,7 @@ export default function App() {
     if (!document.getElementById("tt-compat-css")) {
       const st = document.createElement("style");
       st.id = "tt-compat-css";
-      st.textContent = `/* Font sizes */
-.text-\[8px\]{font-size:8px;line-height:1}
+      st.textContent = `.text-\[8px\]{font-size:8px;line-height:1}
 .text-\[10px\]{font-size:10px;line-height:1.3}
 .text-\[10\.5px\]{font-size:10.5px;line-height:1.3}
 .text-\[11px\]{font-size:11px;line-height:1.4}
@@ -1777,7 +2344,6 @@ export default function App() {
 .text-\[13\.5px\]{font-size:13.5px;line-height:1.5}
 .text-\[14\.5px\]{font-size:14.5px;line-height:1.5}
 .text-\[15px\]{font-size:15px;line-height:1.5}
-/* Widths / heights */
 .w-\[18px\]{width:18px}
 .h-\[18px\]{height:18px}
 .w-\[22px\]{width:22px}
@@ -1791,15 +2357,11 @@ export default function App() {
 .min-w-\[92px\]{min-width:92px}
 .min-h-\[60px\]{min-height:60px}
 .max-h-\[88vh\]{max-height:88vh}
-/* Flex ratios */
 .flex-\[2\]{flex:2 2 0%}
 .flex-\[1\.4\]{flex:1.4 1.4 0%}
-/* Misc */
 .tracking-\[0\.3em\]{letter-spacing:0.3em}
 .brightness-\[0\.98\]:hover{filter:brightness(0.98)}
-/* Prevent icon clipping/misalignment: lucide SVGs stay block-level and never shrink */
 svg.lucide{display:block;flex-shrink:0}
-/* line-clamp fallback (in case the utility isn't compiled) */
 .line-clamp-2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .line-clamp-3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 `;
@@ -1807,110 +2369,201 @@ svg.lucide{display:block;flex-shrink:0}
     }
   }, []);
 
+  // Auth: pick up existing session, and react to sign-in/out/password-recovery.
   useEffect(() => {
-    (async () => {
-      let u = await S.get("tms:users"); let t = await S.get("tms:trainings"); let c = await S.get("tms:catalog"); let st = await S.get("tms:settings");
-      // Seed ONLY what's missing — never wipe existing data on load.
-      if (!u) { u = [DEFAULT_SUPERVISOR]; await S.set("tms:users", u); }
-      if (!t) { t = []; await S.set("tms:trainings", t); }
-      if (!c) { c = mkDefaultCatalog(); await S.set("tms:catalog", c); }
-      else {
-        // Migrate old catalog shape forward (string[] / defaultParts) without losing anything.
-        const migrated = normCatalog(c);
-        if (JSON.stringify(migrated) !== JSON.stringify(c)) { c = migrated; await S.set("tms:catalog", c); }
-        else c = migrated;
-      }
-      if (!st) { st = { ...DEFAULT_SETTINGS, currentFY: getFY() }; await S.set("tms:settings", st); }
-      setUsers(u); setTrainings(t); setCatalog(normCatalog(c));
-      setAppSettings({ pendingReminderDays: st.pendingReminderDays ?? 7, overdueReminderDays: st.overdueReminderDays ?? 3 });
-      const fy = st.currentFY || getFY(); setCurrentFY(fy); setFyFilterD(fy); setFyFilterM(fy);
-      const sessionUserId = localStorage.getItem("tms:sessionUserId");
-      if (sessionUserId) {
-        const sessionUser = u.find(x => x.id === sessionUserId);
-        if (sessionUser) setCurrent(sessionUser);
-        else localStorage.removeItem("tms:sessionUserId");
-      }
-      setLoading(false);
-    })();
+    api.getSession().then(s => { setSession(s || null); setAuthLoading(false); });
+    const unsub = api.onAuthChange((s, event) => {
+      if (event === "PASSWORD_RECOVERY") setRecovery(true);
+      if (event === "SIGNED_OUT") setRecovery(false);
+      // Only replace the session object when the user actually changes — token
+      // refreshes shouldn't reload the profile and data.
+      setSession(prev => (prev?.user?.id && prev.user.id === s?.user?.id ? prev : s || null));
+    });
+    return unsub;
   }, []);
 
-  const saveT = async t => { setTrainings(t); await S.set("tms:trainings", t); };
-  const saveU = async u => { setUsers(u); await S.set("tms:users", u); };
-  const saveC = async c => { setCatalog(c); await S.set("tms:catalog", c); };
-  const saveSt = async s => { setAppSettings({ pendingReminderDays: s.pendingReminderDays, overdueReminderDays: s.overdueReminderDays }); await S.set("tms:settings", { ...s, currentFY }); };
+  // Once signed in, load this user's profile and check the role they signed in as.
+  const sessionUserId = session?.user?.id;
+  useEffect(() => {
+    if (!sessionUserId) { setProfile(null); return; }
+    api.getMyProfile().then(p => {
+      if (!p) return;
+      if (!p.is_active) {
+        setLoginError("Your account has been deactivated. Please contact your manager or HR.");
+        setLoginRole(null); api.signOut(); return;
+      }
+      if (loginRole && p.role !== loginRole) {
+        setLoginError(`This account is registered as ${ROLE_LABELS[p.role]}, not ${ROLE_LABELS[loginRole]}. Please pick the right role.`);
+        setLoginRole(null); api.signOut(); return;
+      }
+      setLoginRole(null); setLoginError("");
+      setTab(p.role === "admin" ? "users" : p.role === "reporting_manager" ? "dashboard" : "my-trainings");
+      setProfile(p);
+    }).catch(() => setProfile(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionUserId]);
 
-  const refresh = async () => { setRefreshing(true); const u = await S.get("tms:users"); const t = await S.get("tms:trainings"); const c = await S.get("tms:catalog"); if (u) setUsers(u); if (t) setTrainings(t); if (c) setCatalog(normCatalog(c)); setTimeout(() => setRefreshing(false), 400); };
-  const login = u => { setCurrent(u); localStorage.setItem("tms:sessionUserId", u.id); setTab(u.role === "supervisor" ? "dashboard" : "my-trainings"); };
-  const logout = () => { setCurrent(null); localStorage.removeItem("tms:sessionUserId"); };
-  const updateUser = async upd => { const u = users.map(x => x.id === upd.id ? upd : x); await saveU(u); };
+  const loadData = async () => {
+    if (!profile) return;
+    if (profile.role === "admin") {
+      const [cats, ppl, cat] = await Promise.all([api.listCategories(), api.listVisibleProfiles(), api.listCatalog()]);
+      setCategories(cats); setPeople(ppl); setCatalog(cat);
+      return;
+    }
+    const [cats, trs, ppl] = await Promise.all([api.listCategories(), api.listTrainings(), api.listVisibleProfiles()]);
+    setCategories(cats);
+    setTrainings(trs);
+    setPeople(ppl);
+    const reqs = trs.length ? await api.listRequestsFor(trs.map(t => t.id)) : [];
+    setRequests(reqs);
 
-  const markComplete = async (trainingId, partId, data) => {
-    const updated = trainings.map(t => {
-      if (t.id !== trainingId) return t;
-      if (!partId) return { ...t, status: "completed", completedDate: today(), notes: data.notes, outcomes: data.outcomes };
-      const updParts = t.parts.map(p => p.id === partId ? { ...p, status: "completed", completedDate: today(), notes: data.notes, outcomes: data.outcomes } : p);
-      const allDone = updParts.every(p => p.status === "completed");
-      return { ...t, parts: updParts, status: allDone ? "completed" : "in-progress", completedDate: allDone ? today() : null };
-    });
-    await saveT(updated); setCompleteT(null);
+    if (profile.role === "reporting_manager") {
+      const [rep, appr, st, cat] = await Promise.all([api.listMyReportees(), api.listPendingApprovals(), api.getSettings(), api.listCatalog()]);
+      setCatalog(cat);
+      setReportees(rep);
+      setApprovals(appr);
+      const fy = st?.current_fy || getFY();
+      setManagerSettings({ pendingReminderDays: st?.pending_reminder_days ?? 7, overdueReminderDays: st?.overdue_reminder_days ?? 3 });
+      setCurrentFY(fy); setFyFilterD(fy);
+      if (!st) await api.upsertSettings({ pending_reminder_days: 7, overdue_reminder_days: 3, current_fy: fy });
+    } else {
+      const fys = [...new Set(trs.map(t => t.fy))].filter(Boolean).sort().reverse();
+      const fy = fys[0] || getFY();
+      setFyFilterM(fy);
+    }
   };
 
-  const addTraining = async (batch) => {
-    const list = Array.isArray(batch) ? batch : [batch];
-    const newOnes = list.map((a, i) => ({
-      id: uid("t") + i, userId: a.userId, catId: a.catId || null, title: a.title,
-      fy: currentFY, assignedDate: today(), dueDate: a.dueDate || null,
-      status: "pending", completedDate: null, notes: null, outcomes: [],
-      resources: a.resources || [], parts: a.parts || [], lastReminderSent: null,
-    }));
-    await saveT([...trainings, ...newOnes]); setAdd(false);
+  useEffect(() => {
+    if (!profile) return;
+    setDataLoading(true);
+    loadData().finally(() => setDataLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile]);
+
+  const refresh = async () => { setRefreshing(true); await loadData(); setRefreshing(false); };
+
+  const logout = async () => { await api.signOut(); setProfile(null); setRecovery(false); };
+
+  const finishForcedPasswordChange = async (newPassword) => {
+    await api.updateMyPassword(newPassword);
+    if (profile.must_change_password) await api.clearMustChangePassword(profile.id);
+    setRecovery(false);
+    setProfile(p => ({ ...p, must_change_password: false }));
   };
 
-  const markReminded = async ids => { await saveT(trainings.map(t => ids.includes(t.id) ? { ...t, lastReminderSent: today() } : t)); };
+  const requestApproval = async (trainingId, partId, notes, outcomeLinks) => {
+    await api.submitForApproval(trainingId, partId, notes, outcomeLinks);
+    setRequestT(null);
+    await loadData();
+  };
+
+  const startTraining = async (id) => { await api.startTraining(id); await loadData(); };
+  const updateProgress = async (id, pct) => { await api.updateProgress(id, pct); await loadData(); };
+
+  const addTraining = async ({ memberIds, payload, parts, saveToCatalog }) => {
+    let catalog_id = payload.catalog_id;
+    if (saveToCatalog) {
+      const { fy, status, expected_end_date, due_date, catalog_id: _, ...tpl } = payload;
+      // Same name already in the catalog → just link to the existing entry.
+      try { await api.saveCatalogItem({ ...tpl, parts }); } catch (e) { if (!/already exists/.test(e.message)) throw e; }
+      catalog_id = (await api.listCatalog()).find(c => c.name.toLowerCase() === tpl.name.toLowerCase())?.id || null;
+    }
+    for (const assigned_to of memberIds) {
+      await api.createTraining({ ...payload, catalog_id, assigned_to }, parts);
+    }
+    setAdd(false);
+    await loadData();
+  };
+
+  const bulkAssign = async ({ items, memberIds, expectedEnd, dueDate }) => {
+    for (const c of items) {
+      for (const assigned_to of memberIds) {
+        await api.createTraining({
+          name: c.name, category_id: c.category_id, training_link: c.training_link, mode: c.mode,
+          trainer: c.trainer, priority: c.priority, resources: c.resources || [],
+          expected_end_date: expectedEnd, due_date: dueDate, fy: currentFY, status: "pending",
+          catalog_id: c.id, assigned_to,
+        }, (c.parts || []).map(p => ({ title: p.title, part_link: p.part_link || null })));
+      }
+    }
+    setBulk(null);
+    await loadData();
+  };
+
+  const editTraining = async (id, patch) => { await api.updateTraining(id, patch); setEditT(null); setDetailT(null); await loadData(); };
+  const deleteTraining = async (t) => { await api.deleteTraining(t.id); setDetailT(null); await loadData(); };
+
+  const saveCatalogItem = async (item) => { await api.saveCatalogItem(item); setCatalog(await api.listCatalog()); };
+  const importCatalog = async (rows) => { await api.insertCatalogItems(rows); setCatalog(await api.listCatalog()); };
+  const deleteCatalogItem = async (id) => { await api.deleteCatalogItem(id); setCatalog(await api.listCatalog()); };
+
+  const approveOne = async (requestId, remarks) => { await api.approveRequest(requestId, remarks); await loadData(); };
+  const sendBackOne = async (requestId, remarks) => { await api.sendBackRequest(requestId, remarks); await loadData(); };
+
+  const markReminded = async ids => { await Promise.all(ids.map(id => api.markReminderSent(id))); await loadData(); };
+  const saveReminderSettings = async patch => {
+    setManagerSettings(patch);
+    await api.upsertSettings({ pending_reminder_days: patch.pendingReminderDays, overdue_reminder_days: patch.overdueReminderDays, current_fy: currentFY });
+  };
 
   const finalizeYear = async decisions => {
-    const nfy = nextFY(currentFY); let upd = [...trainings];
-    decisions.forEach(({ id, action }) => {
-      const idx = upd.findIndex(t => t.id === id); if (idx === -1) return;
-      const orig = upd[idx]; upd[idx] = { ...orig, status: "discarded" };
-      if (action === "carry") upd.push({ ...orig, id: uid("t"), fy: nfy, status: "pending", dueDate: null, assignedDate: today(), lastReminderSent: null, carriedFromFy: currentFY, notes: null, outcomes: [], completedDate: null, parts: (orig.parts || []).map(p => ({ ...p, status: "pending", completedDate: null, notes: null, outcomes: [] })) });
-    });
-    await saveT(upd); setCurrentFY(nfy); setFyFilterD(nfy); setFyFilterM(nfy); await S.set("tms:settings", { ...appSettings, currentFY: nfy });
+    const nfy = nextFY(currentFY);
+    await api.finalizeYear(currentFY, nfy, decisions, trainings);
+    await api.upsertSettings({ current_fy: nfy });
+    setCurrentFY(nfy); setFyFilterD(nfy);
+    await loadData();
   };
 
-  const resetData = async () => {
-    const fu = [DEFAULT_SUPERVISOR], ft = [], fc = mkDefaultCatalog(), fs = { ...DEFAULT_SETTINGS, currentFY: getFY() };
-    await S.set("tms:users", fu); await S.set("tms:trainings", ft); await S.set("tms:catalog", fc); await S.set("tms:settings", fs);
-    setUsers(fu); setTrainings(ft); setCatalog(fc); setAppSettings(DEFAULT_SETTINGS); setCurrentFY(fs.currentFY); setFyFilterD(fs.currentFY); setFyFilterM(fs.currentFY); setCurrent(null);
-    localStorage.removeItem("tms:sessionUserId");
-  };
+  const createUser = async (payload) => { const res = await api.provisionUser(payload); await loadData(); return res; };
+  const updateUser = async (id, patch) => { await api.adminUpdateUser(id, patch); await loadData(); };
+  const toggleUserActive = async (u) => { await api.setUserActive(u.id, !u.is_active); await loadData(); };
+  const sendSetupLink = async (u) => { const res = await api.sendSetupLink(u.id); await loadData(); return res; };
 
-  const goToCatalogNew = () => { setAdd(false); setTab("catalog"); setCatalogNewSignal(x => x + 1); };
+  if (authLoading) return <div className="flex items-center justify-center h-screen bg-background text-muted-foreground text-sm">Loading…</div>;
+  if (!session) return <LoginScreen onSignInAs={r => { setLoginRole(r); if (r) setLoginError(""); }} roleError={loginError} />;
+  if (!profile) return <div className="flex items-center justify-center h-screen bg-background text-muted-foreground text-sm">Loading your profile…</div>;
+  if (recovery || profile.must_change_password) return <ForcePasswordChange recovery={recovery && !profile.must_change_password} onDone={finishForcedPasswordChange} onCancel={logout} />;
+  if (dataLoading) return <div className="flex items-center justify-center h-screen bg-background text-muted-foreground text-sm">Loading…</div>;
 
-  if (loading) return <div className="flex items-center justify-center h-screen bg-background text-muted-foreground text-sm">Loading…</div>;
-  if (!currentUser) return <LoginScreen users={users} onLogin={login} onUpdateUser={updateUser} />;
+  const isAdmin = profile.role === "admin";
+  if (isAdmin) {
+    return (
+      <div className="flex h-screen bg-background text-foreground overflow-hidden font-sans">
+        <Sidebar profile={profile} tab={tab} setTab={setTab} onLogout={logout} myDone={0} myTotal={0} trainings={[]} currentFY={currentFY} pendingApprovalsCount={0} />
+        <main className="flex-1 overflow-auto p-8">
+          {tab === "users" && <UsersAdmin me={profile} people={people} onCreate={createUser} onUpdate={updateUser} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} />}
+          {tab === "catalog" && <CatalogPage catalog={catalog} categories={categories} trainings={[]} canAssign={false} onSave={saveCatalogItem} onImport={importCatalog} onDelete={deleteCatalogItem} />}
+        </main>
+      </div>
+    );
+  }
 
-  const myT = trainings.filter(t => t.userId === currentUser.id);
-  const myAFY = myT.filter(t => t.fy === currentFY && getEffStatus(t) !== "discarded");
+  const isManager = profile.role === "reporting_manager";
+  const myT = !isManager ? trainings : [];
+  const myAFY = myT.filter(t => t.fy === fyFilterM && t.status !== "discarded");
   const myDone = myAFY.reduce((s, t) => s + getUnits(t).done, 0);
   const myTotal = myAFY.reduce((s, t) => s + getUnits(t).total, 0);
-  const allFYs = [...new Set([currentFY, ...trainings.map(t => t.fy)])].filter(Boolean).sort().reverse();
+  const allFYs = [...new Set([...(isManager ? [currentFY] : []), ...trainings.map(t => t.fy)])].filter(Boolean).sort().reverse();
 
   return (
-    <div className="flex h-screen bg-background text-foreground overflow-hidden" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
-      <Sidebar user={currentUser} tab={tab} setTab={setTab} onLogout={logout} myDone={myDone} myTotal={myTotal} trainings={trainings} currentFY={currentFY} />
+    <div className="flex h-screen bg-background text-foreground overflow-hidden font-sans">
+      <Sidebar profile={profile} tab={tab} setTab={setTab} onLogout={logout} myDone={myDone} myTotal={myTotal} trainings={trainings} currentFY={currentFY} pendingApprovalsCount={approvals.length} />
       <main className="flex-1 overflow-auto p-8">
-        {tab === "dashboard" && currentUser.role === "supervisor" && <Dashboard users={users} trainings={trainings} onAdd={() => setAdd(true)} onRefresh={refresh} refreshing={refreshing} fyList={allFYs} fyFilter={fyFilterD} setFyFilter={setFyFilterD} onExport={() => setExportOpen(true)} onDetail={(t, p) => setDetailT({ training: t, part: p })} />}
-        {tab === "my-trainings" && <MyTrainings trainings={myT} onComplete={(t, p) => setCompleteT({ training: t, part: p })} onDetail={(t, p) => setDetailT({ training: t, part: p })} fyList={allFYs} fyFilter={fyFilterM} setFyFilter={setFyFilterM} />}
-        {tab === "knowledge-hub" && <KnowledgeHub trainings={trainings} users={users} onDetail={(t, p) => setDetailT({ training: t, part: p })} />}
-        {tab === "catalog" && currentUser.role === "supervisor" && <CatalogManager catalog={catalog} trainings={trainings} onSave={saveC} openNew={catalogNewSignal} />}
-        {tab === "reminders" && currentUser.role === "supervisor" && <Reminders users={users} trainings={trainings} settings={appSettings} onSaveSettings={saveSt} onMarkReminded={markReminded} />}
-        {tab === "settings" && currentUser.role === "supervisor" && <Settings users={users} trainings={trainings} currentFY={currentFY} onSaveUsers={saveU} onReset={resetData} onFinalizeYear={finalizeYear} />}
+        {tab === "dashboard" && isManager && <Dashboard reportees={reportees} trainings={trainings} onAdd={() => setAdd({})} onBulk={() => setBulk({ ids: [] })} onRefresh={refresh} refreshing={refreshing} fyList={allFYs} fyFilter={fyFilterD} setFyFilter={setFyFilterD} onExport={() => setExportOpen(true)} onDetail={(t, p) => setDetailT({ training: t, part: p })} />}
+        {tab === "approvals" && isManager && <ApprovalsPanel approvals={approvals} onApprove={approveOne} onSendBack={sendBackOne} onRefresh={refresh} refreshing={refreshing} />}
+        {tab === "catalog" && isManager && <CatalogPage catalog={catalog} categories={categories} trainings={trainings} canAssign onSave={saveCatalogItem} onImport={importCatalog} onDelete={deleteCatalogItem} onAssign={id => setAdd({ catalogId: id })} onBulkAssign={ids => setBulk({ ids })} />}
+        {tab === "my-trainings" && !isManager && <MyTrainings trainings={myT} requests={requests} onRequestApproval={(t, p) => setRequestT({ training: t, part: p })} onDetail={(t, p) => setDetailT({ training: t, part: p })} onStart={startTraining} onProgress={updateProgress} fyList={allFYs.length ? allFYs : [getFY()]} fyFilter={fyFilterM} setFyFilter={setFyFilterM} />}
+        {tab === "knowledge-hub" && <KnowledgeHub trainings={trainings} reportees={people} requests={requests} onDetail={(t, p) => setDetailT({ training: t, part: p })} />}
+        {tab === "reminders" && isManager && <Reminders reportees={reportees} trainings={trainings} settings={managerSettings} onSaveSettings={saveReminderSettings} onMarkReminded={markReminded} />}
+        {tab === "settings" && isManager && <Settings reportees={reportees} trainings={trainings} currentFY={currentFY} onAddReportee={createUser} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} onFinalizeYear={finalizeYear} onRefreshReportees={refresh} />}
       </main>
-      {detailTarget && <DetailModal training={detailTarget.training} users={users} onClose={() => setDetailT(null)} />}
-      {completeTarget && <CompleteModal training={completeTarget.training} part={completeTarget.part} onSubmit={markComplete} onClose={() => setCompleteT(null)} />}
-      {addModal && <AssignModal users={users} catalog={catalog} currentFY={currentFY} onSubmit={addTraining} onClose={() => setAdd(false)} onGoToCatalog={goToCatalogNew} />}
-      {exportOpen && <ExportModal users={users} trainings={trainings} fyList={allFYs} currentFY={currentFY} onClose={() => setExportOpen(false)} />}
+      {detailTarget && <DetailModal training={detailTarget.training} part={detailTarget.part} reportees={people} requests={requests} onClose={() => setDetailT(null)}
+        onEdit={isManager ? t => setEditT(t) : null} onDelete={isManager ? deleteTraining : null} />}
+      {editTarget && <EditTrainingModal training={editTarget} categories={categories} onSubmit={editTraining} onClose={() => setEditT(null)} />}
+      {requestTarget && <ApprovalRequestModal training={requestTarget.training} part={requestTarget.part} requests={requests} onSubmit={requestApproval} onClose={() => setRequestT(null)} />}
+      {addModal && <AssignModal reportees={reportees} categories={categories} catalog={catalog} currentFY={currentFY} initialCatalogId={addModal.catalogId} onSubmit={addTraining} onClose={() => setAdd(false)} onGoToSettings={() => { setAdd(false); setTab("settings"); }} />}
+      {bulkModal && <BulkAssignModal reportees={reportees} catalog={catalog} currentFY={currentFY} initialIds={bulkModal.ids} onSubmit={bulkAssign} onClose={() => setBulk(null)} onGoToSettings={() => { setBulk(null); setTab("settings"); }} />}
+      {exportOpen && <ExportModal reportees={reportees} trainings={trainings} requests={requests} fyList={allFYs} currentFY={currentFY} onClose={() => setExportOpen(false)} />}
     </div>
   );
 }

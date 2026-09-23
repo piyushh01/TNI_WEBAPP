@@ -1,32 +1,53 @@
 @import "tailwindcss";
 
+/* o2h Technology branding (from o2htechnology.com): Montserrat, sage green
+   #87a878 with dark green #4d6742, charcoal text #292929. */
 @theme {
-  --color-border: #e2e8f0;
-  --color-input: #e2e8f0;
-  --color-ring: #94a3b8;
-  --color-background: #ffffff;
-  --color-foreground: #0f172a;
+  --font-sans: "Montserrat", system-ui, sans-serif;
 
-  --color-primary: #2563eb;
+  --color-border: #e3e7e1;
+  --color-input: #e3e7e1;
+  --color-ring: #87a878;
+  --color-background: #f4f6f7;
+  --color-foreground: #292929;
+
+  --color-primary: #4d6742;
   --color-primary-foreground: #ffffff;
 
-  --color-secondary: #f1f5f9;
-  --color-secondary-foreground: #0f172a;
+  --color-secondary: #eef3ec;
+  --color-secondary-foreground: #292929;
 
   --color-destructive: #dc2626;
   --color-destructive-foreground: #ffffff;
 
-  --color-muted: #f1f5f9;
-  --color-muted-foreground: #64748b;
+  --color-muted: #f1f4f0;
+  --color-muted-foreground: #6b6b6b;
 
-  --color-accent: #f1f5f9;
-  --color-accent-foreground: #0f172a;
+  --color-accent: #eef3ec;
+  --color-accent-foreground: #292929;
 
   --color-popover: #ffffff;
-  --color-popover-foreground: #0f172a;
+  --color-popover-foreground: #292929;
 
   --color-card: #ffffff;
-  --color-card-foreground: #0f172a;
+  --color-card-foreground: #292929;
+
+  /* The UI's accent classes use "indigo"; remap that scale to o2h greens so
+     every highlight, badge and link picks up the brand colour. */
+  --color-indigo-50:  #f3f7f1;
+  --color-indigo-100: #e4edde;
+  --color-indigo-200: #cadbc0;
+  --color-indigo-300: #a9c59b;
+  --color-indigo-400: #87a878;
+  --color-indigo-500: #6f915f;
+  --color-indigo-600: #5a7a4d;
+  --color-indigo-700: #4d6742;
+  --color-indigo-800: #3d5235;
+  --color-indigo-900: #33432d;
+
+  /* Secondary brand accent (olive yellow #d6d36a) for gradients */
+  --color-violet-500: #a8a64a;
+  --color-violet-600: #87a878;
 
   --radius: 0.65rem;
 }
@@ -38,7 +59,7 @@
   body {
     background: var(--color-background);
     color: var(--color-foreground);
-    font-family: system-ui, sans-serif;
+    font-family: var(--font-sans);
     margin: 0;
     padding: 0;
   }
