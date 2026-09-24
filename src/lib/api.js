@@ -329,3 +329,9 @@ export const sendSetupLink = (userId) => callApi("send-setup-link", { user_id: u
 export const setUserActive = (userId, active) => callApi("set-user-active", { user_id: userId, active });
 
 export const adminUpdateUser = (userId, patch) => callApi("update-user", { user_id: userId, ...patch });
+
+// Permanently removes a user and their trainings.
+export const deleteUser = (userId) => callApi("delete-user", { user_id: userId });
+
+// Emails reportees about trainings just assigned to them → { sent, failed[], skipped? }
+export const notifyAssigned = (trainingIds) => callApi("notify-assigned", { training_ids: trainingIds });

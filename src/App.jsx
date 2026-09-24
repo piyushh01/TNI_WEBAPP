@@ -179,6 +179,24 @@ function LoadingScreen({ label = "Loading…" }) {
   );
 }
 
+// Small status message, bottom-right; auto-dismisses.
+function Toast({ toast, onClose }) {
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(onClose, 7000);
+    return () => clearTimeout(t);
+  }, [toast]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!toast) return null;
+  return (
+    <div role="status" className={cn("fixed bottom-5 right-5 z-[500] max-w-sm flex items-start gap-2.5 rounded-xl border bg-white px-4 py-3 text-[13px] shadow-[0_12px_32px_rgba(20,32,25,0.14)]",
+      toast.tone === "warning" ? "border-amber-200" : "border-emerald-200")}>
+      {toast.tone === "warning" ? <AlertCircle className="h-4 w-4 mt-0.5 text-amber-600 shrink-0" /> : <Check className="h-4 w-4 mt-0.5 text-emerald-600 shrink-0" />}
+      <span className="flex-1 leading-relaxed">{toast.text}</span>
+      <button onClick={onClose} aria-label="Dismiss" className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+    </div>
+  );
+}
+
 // Dashboard metric: label + small icon on top, value, muted note.
 function StatCard({ label, value, note, Icon, tone, onClick }) {
   const Comp = onClick ? "button" : "div";
@@ -2245,6 +2263,18 @@ function Reminders({ reportees, trainings, settings, onSaveSettings, onMarkRemin
 }
 
 // ── SETTINGS ──────────────────────────────────────────────────────────────────
+// Confirm step for the irreversible "Delete user".
+function DeleteUserDialog({ user, onConfirm, onCancel }) {
+  if (!user) return null;
+  return (
+    <ConfirmDialog open danger
+      title={`Delete ${user.full_name}?`}
+      body={`This permanently removes ${user.full_name} (${user.email}) and all of their trainings, notes and approval history. It can't be undone. To only block sign-in, use Deactivate instead.`}
+      confirmLabel="Delete permanently"
+      onConfirm={onConfirm} onCancel={onCancel} />
+  );
+}
+
 // Result of an invite / setup-link send: either the email went out, or we show
 // the link so it can be shared manually (e.g. when SMTP isn't configured yet).
 function InviteResult({ result, onDismiss }) {
@@ -2276,7 +2306,8 @@ function InviteResult({ result, onDismiss }) {
   );
 }
 
-function Settings({ reportees, trainings, currentFY, onAddReportee, onToggleActive, onSendLink, onFinalizeYear, onRefreshReportees }) {
+function Settings({ reportees, trainings, currentFY, onAddReportee, onToggleActive, onSendLink, onDelete, onFinalizeYear, onRefreshReportees }) {
+  const [toDelete, setToDelete] = useState(null);
   const [addForm, setAddForm] = useState(false);
   const [newU, setNewU] = useState({ full_name: "", email: "", color: COLORS[0] });
   const [creating, setCreating] = useState(false);
@@ -2313,6 +2344,7 @@ function Settings({ reportees, trainings, currentFY, onAddReportee, onToggleActi
       </div>
 
       <InviteResult result={created} onDismiss={() => setCreated(null)} />
+      <DeleteUserDialog user={toDelete} onCancel={() => setToDelete(null)} onConfirm={() => { const u = toDelete; setToDelete(null); rowAction(u.id, () => onDelete(u)); }} />
 
       <Card className="mb-4">
         <CardContent className="p-6">
@@ -2345,6 +2377,7 @@ function Settings({ reportees, trainings, currentFY, onAddReportee, onToggleActi
                 <span className={cn("text-[11px] font-semibold px-2.5 py-1 rounded-md", u.is_active ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground")}>{u.is_active ? "Active" : "Inactive"}</span>
                 {u.is_active && <Button variant="outline" size="sm" disabled={busyId === u.id} onClick={() => rowAction(u.id, () => onSendLink(u))}><Send className="h-3.5 w-3.5 mr-1" />Send setup link</Button>}
                 <Button variant="outline" size="sm" disabled={busyId === u.id} onClick={() => rowAction(u.id, () => onToggleActive(u))}>{u.is_active ? "Deactivate" : "Reactivate"}</Button>
+                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-rose-600" title="Delete user" aria-label={`Delete ${u.full_name}`} disabled={busyId === u.id} onClick={() => setToDelete(u)}><Trash2 className="h-4 w-4" /></Button>
               </div>
             ))}
             {reportees.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No reportees yet.</p>}
@@ -2588,7 +2621,8 @@ function UserFormModal({ user, managers, onSubmit, onClose }) {
   );
 }
 
-function UsersAdmin({ me, people, onCreate, onUpdate, onToggleActive, onSendLink }) {
+function UsersAdmin({ me, people, onCreate, onUpdate, onToggleActive, onSendLink, onDelete }) {
+  const [toDelete, setToDelete] = useState(null);
   const [search, setSearch] = useState("");
   const [roleF, setRoleF] = useState("all");
   const [editing, setEditing] = useState(null); // null | "new" | profile
@@ -2615,6 +2649,7 @@ function UsersAdmin({ me, people, onCreate, onUpdate, onToggleActive, onSendLink
         <Button size="sm" onClick={() => setEditing("new")}><Plus className="h-4 w-4 mr-1.5" />Add User</Button>
       </div>
       <InviteResult result={result} onDismiss={() => setResult(null)} />
+      <DeleteUserDialog user={toDelete} onCancel={() => setToDelete(null)} onConfirm={() => { const u = toDelete; setToDelete(null); rowAction(u.id, () => onDelete(u)); }} />
       <div className="flex gap-2.5 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[220px]">
           <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -2662,6 +2697,7 @@ function UsersAdmin({ me, people, onCreate, onUpdate, onToggleActive, onSendLink
                       <Button size="icon" variant="ghost" className="text-muted-foreground" title="Edit" onClick={() => setEditing(p)}><Pencil className="h-4 w-4" /></Button>
                       {p.is_active && p.id !== me.id && <Button size="sm" variant="outline" disabled={busyId === p.id} onClick={() => rowAction(p.id, () => onSendLink(p))}><Send className="h-3.5 w-3.5 mr-1" />Setup link</Button>}
                       {p.id !== me.id && <Button size="sm" variant="outline" disabled={busyId === p.id} onClick={() => rowAction(p.id, () => onToggleActive(p))}>{p.is_active ? "Deactivate" : "Reactivate"}</Button>}
+                      {p.id !== me.id && <Button size="icon" variant="ghost" className="text-muted-foreground hover:text-rose-600" title="Delete user" aria-label={`Delete ${p.full_name}`} disabled={busyId === p.id} onClick={() => setToDelete(p)}><Trash2 className="h-4 w-4" /></Button>}
                     </div>
                   </td>
                 </tr>
@@ -2813,6 +2849,7 @@ export default function App() {
   const [addModal, setAdd] = useState(false);         // false | { catalogId? }
   const [bulkModal, setBulk] = useState(null);        // null | { ids }
   const [editTarget, setEditT] = useState(null);
+  const [toast, setToast] = useState(null); // { tone, text }
   const [detailTarget, setDetailT] = useState(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [fyFilterD, setFyFilterD] = useState(getFY());
@@ -2965,28 +3002,45 @@ svg.lucide{display:block;flex-shrink:0}
       try { await api.saveCatalogItem({ ...tpl, parts }); } catch (e) { if (!/already exists/.test(e.message)) throw e; }
       catalog_id = (await api.listCatalog()).find(c => c.name.toLowerCase() === tpl.name.toLowerCase())?.id || null;
     }
+    const ids = [];
     for (const assigned_to of memberIds) {
-      await api.createTraining({ ...payload, catalog_id, assigned_to }, parts);
+      ids.push((await api.createTraining({ ...payload, catalog_id, assigned_to }, parts)).id);
     }
     setAdd(false);
     await loadData();
+    notifyAssignees(ids);
   };
 
   const bulkAssign = async ({ items, memberIds, expectedEnd, dueDate }) => {
+    const ids = [];
     for (const c of items) {
       // Link entered during bulk assign → keep it on the catalog entry too.
       if (!catalog.find(x => x.id === c.id)?.training_link) await api.saveCatalogItem({ id: c.id, training_link: c.training_link });
       for (const assigned_to of memberIds) {
-        await api.createTraining({
+        ids.push((await api.createTraining({
           name: c.name, description: c.description || null, category_id: c.category_id, training_link: c.training_link, mode: c.mode,
           trainer: c.trainer, priority: c.priority, resources: c.resources || [],
           expected_end_date: expectedEnd, due_date: dueDate, fy: currentFY, status: "pending",
           catalog_id: c.id, assigned_to,
-        }, (c.parts || []).map(p => ({ title: p.title, part_link: p.part_link || null })));
+        }, (c.parts || []).map(p => ({ title: p.title, part_link: p.part_link || null })))).id);
       }
     }
     setBulk(null);
     await loadData();
+    notifyAssignees(ids);
+  };
+
+  // Assignment is already saved; the email is best-effort and reported separately.
+  const notifyAssignees = async (ids) => {
+    if (!ids.length) return;
+    try {
+      const r = await api.notifyAssigned(ids);
+      if (r.skipped) setToast({ tone: "warning", text: `Training assigned. No email sent — ${r.reason}.` });
+      else if (r.failed?.length) setToast({ tone: "warning", text: `Training assigned. Email failed for ${r.failed.map(f => f.email).join(", ")}.` });
+      else setToast({ tone: "success", text: `Training assigned — email sent to ${r.sent} reportee${r.sent === 1 ? "" : "s"}.` });
+    } catch (e) {
+      setToast({ tone: "warning", text: `Training assigned, but the email couldn't be sent (${e.message}).` });
+    }
   };
 
   const editTraining = async (id, patch) => { await api.updateTraining(id, patch); setEditT(null); setDetailT(null); await loadData(); };
@@ -3016,6 +3070,7 @@ svg.lucide{display:block;flex-shrink:0}
   const createUser = async (payload) => { const res = await api.provisionUser(payload); await loadData(); return res; };
   const updateUser = async (id, patch) => { await api.adminUpdateUser(id, patch); await loadData(); };
   const toggleUserActive = async (u) => { await api.setUserActive(u.id, !u.is_active); await loadData(); };
+  const deleteUser = async (u) => { await api.deleteUser(u.id); await loadData(); setToast({ tone: "success", text: `${u.full_name} was deleted.` }); };
   const sendSetupLink = async (u) => { const res = await api.sendSetupLink(u.id); await loadData(); return res; };
 
   if (authLoading) return <LoadingScreen />;
@@ -3041,10 +3096,11 @@ svg.lucide{display:block;flex-shrink:0}
         <AppShell renderSidebar={close => <Sidebar profile={profile} tab={tab} setTab={t => { setTab(t); close(); }} onLogout={logout} myDone={0} myTotal={0} trainings={[]} currentFY={currentFY} pendingApprovalsCount={0} />}>
           {tab === "overview" && <AdminOverview people={people} trainings={trainings} requests={requests} onRefresh={refresh} refreshing={refreshing}
             onDetail={(t, p) => setDetailT({ training: t, part: p })} onExport={(reps, fy) => setExportOpen({ reportees: reps, fy })} />}
-          {tab === "users" && <UsersAdmin me={profile} people={people} onCreate={createUser} onUpdate={updateUser} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} />}
+          {tab === "users" && <UsersAdmin me={profile} people={people} onCreate={createUser} onUpdate={updateUser} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} onDelete={deleteUser} />}
           {tab === "catalog" && <CatalogPage catalog={catalog} categories={categories} trainings={trainings} canAssign={false} onSave={saveCatalogItem} onImport={importCatalog} onDelete={deleteCatalogItems} />}
         </AppShell>
         {detailTarget && <DetailModal training={detailTarget.training} part={detailTarget.part} reportees={people} requests={requests} onClose={() => setDetailT(null)} />}
+        <Toast toast={toast} onClose={() => setToast(null)} />
         {exportOpen && <ExportModal reportees={exportOpen.reportees} trainings={trainings.filter(t => exportOpen.reportees.some(r => r.id === t.assigned_to))} requests={requests}
           fyList={[...new Set([getFY(), ...trainings.map(t => t.fy)])].filter(Boolean).sort().reverse()} currentFY={exportOpen.fy} onClose={() => setExportOpen(false)} />}
       </>
@@ -3073,11 +3129,12 @@ svg.lucide{display:block;flex-shrink:0}
         {tab === "my-trainings" && hasOwnTrainings && <MyTrainings trainings={myT} requests={requests} onRequestApproval={(t, p) => setRequestT({ training: t, part: p })} onDetail={(t, p) => setDetailT({ training: t, part: p })} onStart={startTraining} onProgress={updateProgress} fyList={allFYs.length ? allFYs : [getFY()]} fyFilter={fyFilterM} setFyFilter={setFyFilterM} />}
         {tab === "knowledge-hub" && <KnowledgeHub trainings={trainings} reportees={people} requests={requests} onDetail={(t, p) => setDetailT({ training: t, part: p })} />}
         {tab === "reminders" && isManager && <Reminders reportees={reportees} trainings={teamT} settings={managerSettings} onSaveSettings={saveReminderSettings} onMarkReminded={markReminded} />}
-        {tab === "settings" && isManager && <Settings reportees={reportees} trainings={teamT} currentFY={currentFY} onAddReportee={createUser} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} onFinalizeYear={finalizeYear} onRefreshReportees={refresh} />}
+        {tab === "settings" && isManager && <Settings reportees={reportees} trainings={teamT} currentFY={currentFY} onAddReportee={createUser} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} onDelete={deleteUser} onFinalizeYear={finalizeYear} onRefreshReportees={refresh} />}
       </AppShell>
       {detailTarget && <DetailModal training={detailTarget.training} part={detailTarget.part} reportees={people} requests={requests} onClose={() => setDetailT(null)}
         onEdit={isManager && detailTarget.training.assigned_to !== profile.id ? t => setEditT(t) : null}
         onDelete={isManager && detailTarget.training.assigned_to !== profile.id ? deleteTraining : null} />}
+      <Toast toast={toast} onClose={() => setToast(null)} />
       {editTarget && <EditTrainingModal training={editTarget} categories={categories} onSubmit={editTraining} onClose={() => setEditT(null)} />}
       {requestTarget && <ApprovalRequestModal training={requestTarget.training} part={requestTarget.part} requests={requests} onSubmit={requestApproval} onClose={() => setRequestT(null)} />}
       {addModal && <AssignModal reportees={reportees} categories={categories} catalog={catalog} currentFY={currentFY} initialCatalogId={addModal.catalogId} onSubmit={addTraining} onClose={() => setAdd(false)} onGoToSettings={() => { setAdd(false); setTab("settings"); }} />}
