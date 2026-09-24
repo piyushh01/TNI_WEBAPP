@@ -1,4 +1,4 @@
-# TrainTrack — Data Model Reference
+# Skillgo — Data Model Reference
 
 How every feedback item maps to the schema, plus the workflow state machine.
 

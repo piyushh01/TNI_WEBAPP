@@ -350,7 +350,7 @@ function LoginScreen({ onSignInAs, roleError }) {
     <AuthCard>
       <div className="flex flex-col items-center text-center mb-8">
         <BrandMark className="h-14" />
-        <div className="text-[18px] font-bold tracking-[-0.01em] mt-4">TrainTrack</div>
+        <div className="text-[18px] font-bold tracking-[-0.01em] mt-4">Skillgo</div>
         <div className="text-[12px] text-muted-foreground mt-1">BAPM team learning, made accountable.</div>
       </div>
 
@@ -422,7 +422,7 @@ function ForcePasswordChange({ onDone, onCancel, recovery }) {
         <BrandMark className="h-10 mb-2" />
         <div>
           <div className="flex items-center gap-2 text-[16px] font-bold"><ShieldCheck className="h-4 w-4 text-indigo-600" />{recovery ? "Reset your password" : "Set your password"}</div>
-          <p className="text-[12.5px] text-muted-foreground mt-1.5 leading-relaxed">{recovery ? "Choose a new password for your account." : "Welcome to TrainTrack! Choose a password only you know — you'll use it with your email to sign in."}</p>
+          <p className="text-[12.5px] text-muted-foreground mt-1.5 leading-relaxed">{recovery ? "Choose a new password for your account." : "Welcome to Skillgo! Choose a password only you know — you'll use it with your email to sign in."}</p>
         </div>
         <div className="space-y-2"><Label htmlFor="np">New password</Label><Input id="np" type="password" autoComplete="new-password" className="h-11" value={np} onChange={e => { setNp(e.target.value); setErr(""); }} /></div>
         <div className="space-y-2"><Label htmlFor="cp">Confirm password</Label><Input id="cp" type="password" autoComplete="new-password" className="h-11" value={cp} onChange={e => { setCp(e.target.value); setErr(""); }} /></div>
@@ -458,7 +458,7 @@ function AppShell({ renderSidebar, children }) {
         <div className="lg:hidden flex items-center gap-3 h-14 px-4 bg-sidebar text-white shrink-0">
           <button type="button" aria-label="Open navigation" className="rounded-md p-1.5 -ml-1.5 hover:bg-white/10 transition-colors" onClick={() => setDrawer(true)}><Menu className="h-5 w-5" /></button>
           <BrandMark light className="h-7" />
-          <span className="border-l border-white/20 pl-2.5 text-[14px] font-bold">TrainTrack</span>
+          <span className="border-l border-white/20 pl-2.5 text-[14px] font-bold">Skillgo</span>
         </div>
         <main className="flex-1 overflow-auto scroll-quiet p-2 sm:p-3.5">
           <div className="min-h-full rounded-[18px] bg-workspace px-4 py-6 sm:px-8 sm:py-8 xl:px-9">
@@ -496,7 +496,7 @@ function Sidebar({ profile, tab, setTab, onLogout, myDone, myTotal, trainings, c
     <aside className="w-[244px] h-full flex flex-col shrink-0 bg-gradient-to-b from-sidebar to-sidebar-deep text-[#eef4ef] px-3.5 pt-5 pb-3.5">
       <div className="flex items-center gap-2.5 px-2 pb-6">
         <BrandMark light className="h-9 w-auto shrink-0" />
-        <span className="border-l border-white/20 pl-2.5 text-[14px] font-bold tracking-[-0.01em] text-white">TrainTrack</span>
+        <span className="border-l border-white/20 pl-2.5 text-[14px] font-bold tracking-[-0.01em] text-white">Skillgo</span>
       </div>
       <div className="flex items-center justify-between px-2.5 pb-2">
         <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#aebdb2]">Workspace</span>
@@ -2228,7 +2228,7 @@ function InviteResult({ result, onDismiss }) {
         ) : (
           <>
             <div className="flex items-center gap-2 text-sm font-bold text-amber-800 mb-1"><AlertCircle className="h-4 w-4" />Account ready — but the email couldn't be sent</div>
-            <p className="text-[13px] text-amber-800 mb-2">Share this one-time link with <strong>{result.email}</strong> (Teams / Outlook). It opens TrainTrack and asks them to set a password.</p>
+            <p className="text-[13px] text-amber-800 mb-2">Share this one-time link with <strong>{result.email}</strong> (Teams / Outlook). It opens Skillgo and asks them to set a password.</p>
             <div className="bg-card border rounded-lg p-3 text-[12px] font-mono flex items-center justify-between gap-2">
               <span className="truncate">{result.invite_link}</span>
               <Button variant="outline" size="sm" onClick={copy}><Copy className="h-3.5 w-3.5 mr-1" />{copied ? "Copied!" : "Copy"}</Button>
@@ -2663,7 +2663,7 @@ function ExportModal({ reportees, trainings, requests, fyList, currentFY, onClos
       const wb = XLSX.utils.book_new();
 
       const s1 = [
-        ["TrainTrack — Team Performance Report"],
+        ["Skillgo — Team Performance Report"],
         [`Generated: ${new Date().toLocaleDateString("en-IN")}`], [""],
         ["Member", ...selFYs.map(fy => `FY ${fy} Done/Total`), ...selFYs.map(fy => `FY ${fy} %`), "Overall Status"],
       ];
@@ -2694,7 +2694,7 @@ function ExportModal({ reportees, trainings, requests, fyList, currentFY, onClos
       });
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(s3), "Learnings & Notes");
 
-      XLSX.writeFile(wb, `TrainTrack_Report_${new Date().toISOString().split("T")[0]}.xlsx`);
+      XLSX.writeFile(wb, `Skillgo_Report_${new Date().toISOString().split("T")[0]}.xlsx`);
     } catch (e) { console.error("Export error:", e); }
     setExporting(false); onClose();
   };
