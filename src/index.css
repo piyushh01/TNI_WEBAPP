@@ -1,66 +1,122 @@
 @import "tailwindcss";
 
-/* o2h Technology branding (from o2htechnology.com): Montserrat, sage green
-   #87a878 with dark green #4d6742, charcoal text #292929. */
+/* ── o2h TrainTrack design tokens ───────────────────────────────────────────
+   Deep forest-green shell, sage canvas, white workspace, o2h green accent.
+   Montserrat is o2h Technology's brand font (o2htechnology.com). */
 @theme {
   --font-sans: "Montserrat", system-ui, sans-serif;
 
-  --color-border: #e3e7e1;
-  --color-input: #e3e7e1;
-  --color-ring: #87a878;
-  --color-background: #f4f6f7;
-  --color-foreground: #292929;
+  /* Surfaces */
+  --color-canvas: #e7ebe8;          /* app background behind the workspace */
+  --color-workspace: #fdfefd;       /* main white content area */
+  --color-sidebar: #234532;
+  --color-sidebar-deep: #1b3427;
+  --color-field: #fbfcfb;           /* input fill */
+  --color-table-head: #f8faf8;
 
-  --color-primary: #4d6742;
+  --color-border: #e0e5e1;
+  --color-input: #d7ded9;
+  --color-ring: #a7bf94;
+  --color-background: #ffffff;
+  --color-foreground: #142019;
+
+  /* o2h green — darker shade on filled buttons keeps white text readable */
+  --color-primary: #557c3f;
+  --color-primary-hover: #365a42;
   --color-primary-foreground: #ffffff;
 
   --color-secondary: #eef3ec;
-  --color-secondary-foreground: #292929;
+  --color-secondary-foreground: #142019;
 
-  --color-destructive: #dc2626;
+  --color-destructive: #b85454;
   --color-destructive-foreground: #ffffff;
 
-  --color-muted: #f1f4f0;
-  --color-muted-foreground: #6b6b6b;
+  --color-muted: #f3f5f3;
+  --color-muted-foreground: #6f7b73;
 
   --color-accent: #eef3ec;
-  --color-accent-foreground: #292929;
+  --color-accent-foreground: #142019;
 
   --color-popover: #ffffff;
-  --color-popover-foreground: #292929;
+  --color-popover-foreground: #142019;
 
   --color-card: #ffffff;
-  --color-card-foreground: #292929;
+  --color-card-foreground: #142019;
 
-  /* The UI's accent classes use "indigo"; remap that scale to o2h greens so
-     every highlight, badge and link picks up the brand colour. */
-  --color-indigo-50:  #f3f7f1;
-  --color-indigo-100: #e4edde;
-  --color-indigo-200: #cadbc0;
-  --color-indigo-300: #a9c59b;
-  --color-indigo-400: #87a878;
-  --color-indigo-500: #6f915f;
-  --color-indigo-600: #5a7a4d;
-  --color-indigo-700: #4d6742;
-  --color-indigo-800: #3d5235;
-  --color-indigo-900: #33432d;
+  /* The UI's accent classes use "indigo"; remapped to the o2h green scale. */
+  --color-indigo-50:  #f4f8f1;
+  --color-indigo-100: #e8f0e3;
+  --color-indigo-200: #d3e2c9;
+  --color-indigo-300: #b3cc9f;
+  --color-indigo-400: #8fb277;
+  --color-indigo-500: #739b5c;
+  --color-indigo-600: #5f8749;
+  --color-indigo-700: #466b35;
+  --color-indigo-800: #365a42;
+  --color-indigo-900: #193525;
 
-  /* Secondary brand accent (olive yellow #d6d36a) for gradients */
-  --color-violet-500: #a8a64a;
-  --color-violet-600: #87a878;
+  /* Status palettes — low saturation so badges inform without shouting */
+  --color-emerald-50:  #f0f6ef;
+  --color-emerald-100: #e2eee0;
+  --color-emerald-200: #cadfc6;
+  --color-emerald-300: #a8c9a2;
+  --color-emerald-600: #4e7d48;
+  --color-emerald-700: #3f6a3a;
+  --color-emerald-800: #33562f;
 
-  --radius: 0.65rem;
+  --color-amber-50:  #fbf7ec;
+  --color-amber-100: #f4ead0;
+  --color-amber-200: #e8d8ad;
+  --color-amber-600: #9a7424;
+  --color-amber-700: #7f5f1d;
+  --color-amber-800: #664c18;
+
+  --color-rose-50:  #fcf2f0;
+  --color-rose-100: #f8e3df;
+  --color-rose-200: #efcbc5;
+  --color-rose-300: #e2aaa2;
+  --color-rose-500: #c95e5e;
+  --color-rose-600: #b25050;
+  --color-rose-700: #974343;
+
+  --color-orange-50:  #fcf4ee;
+  --color-orange-100: #f7e6d8;
+  --color-orange-200: #edd0b8;
+  --color-orange-600: #a9653a;
+  --color-orange-700: #8d5430;
+
+  --color-violet-50:  #f4f3f8;
+  --color-violet-100: #eceaf3;
+  --color-violet-200: #d9d5e7;
+  --color-violet-600: #625a8a;
+  --color-violet-700: #544d78;
+
+  --radius: 0.625rem;
 }
 
 @layer base {
   * {
     border-color: var(--color-border);
   }
+  html, body, #root {
+    height: 100%;
+  }
   body {
-    background: var(--color-background);
+    background: var(--color-canvas);
     color: var(--color-foreground);
     font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
     margin: 0;
     padding: 0;
   }
+  :focus-visible {
+    outline: none;
+  }
+}
+
+/* Thin, quiet scrollbars inside the workspace */
+@layer utilities {
+  .scroll-quiet::-webkit-scrollbar { width: 10px; height: 10px; }
+  .scroll-quiet::-webkit-scrollbar-thumb { background: #cfd7d1; border-radius: 99px; border: 3px solid transparent; background-clip: content-box; }
+  .scroll-quiet::-webkit-scrollbar-track { background: transparent; }
 }

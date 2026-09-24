@@ -4,9 +4,10 @@ import {
   BookOpen, LogOut, Plus, RefreshCw, Download, Search, Link2, X,
   ChevronDown, ChevronUp, ChevronRight, Check, CircleDot, Circle, Clock, AlertCircle,
   Target, Users, Package, Trophy, Pencil, Trash2, GraduationCap, ExternalLink,
-  Mail, Copy, Sparkles, ShieldCheck, CalendarDays, Play, Upload, FolderOpen, UserCog, Send,
+  Mail, Copy, Sparkles, ShieldCheck, CalendarDays, Play, Upload, FolderOpen, UserCog, Send, Menu,
 } from "lucide-react";
 import o2hLogo from "./assets/o2h-logo.svg";
+import o2hLogoLight from "./assets/o2h-logo-light.svg";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,7 +30,9 @@ import * as api from "./lib/api";
 const cn = (...args) => args.flat(Infinity).filter(Boolean).join(" ");
 
 // ── Domain constants ──────────────────────────────────────────────────────────
-const COLORS = ["#4f46e5","#0891b2","#0f9d6b","#d97706","#e0455e","#2563eb","#7c3aed","#0f766e","#db2777","#475569"];
+const COLORS = ["#557c3f","#3f7a73","#7a6a3a","#8a5a44","#5b6e8c","#6b5b8a","#8a4f5e","#4f6b5a","#7d7a52","#5a6470"];
+const LEGACY_COLORS = ["#4f46e5","#0891b2","#0f9d6b","#d97706","#e0455e","#2563eb","#7c3aed","#0f766e","#db2777","#475569"];
+const avatarColor = c => { const i = LEGACY_COLORS.indexOf((c || "").toLowerCase()); return i >= 0 ? COLORS[i] : c || COLORS[0]; };
 const MODE_OPTIONS = [
   { value: "online", label: "Online" },
   { value: "face_to_face", label: "Face to Face" },
@@ -99,10 +102,11 @@ function reqFor(requests, trainingId, partId, status) {
 }
 
 // ── Small presentational atoms ────────────────────────────────────────────────
-function UAvatar({ name, color, className }) {
+function UAvatar({ name, color, className, solid }) {
+  const col = avatarColor(color);
   return (
     <Avatar className={cn("shrink-0", className)}>
-      <AvatarFallback style={{ background: color || "#4f46e5" }} className="text-white font-semibold text-xs">
+      <AvatarFallback style={solid ? { background: col, color: "#fff" } : { background: `${col}1f`, color: col }} className="font-bold text-[10.5px]">
         {initials(name)}
       </AvatarFallback>
     </Avatar>
@@ -121,7 +125,7 @@ function StatusBadge({ status, dueDate }) {
 
 function AchBadge({ level }) {
   const a = ACHIEVEMENT[level]; if (!a) return null;
-  return <Badge variant="outline" className={cn("font-medium", a.cls)}>{a.emoji} {a.label}</Badge>;
+  return <Badge variant="outline" className={cn("font-medium", a.cls)}>{a.label}</Badge>;
 }
 
 function FYBadge({ fy }) {
@@ -141,7 +145,59 @@ function PartDot({ n, status }) {
 }
 
 function SectionLabel({ children, className }) {
-  return <h2 className={cn("text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3", className)}>{children}</h2>;
+  return <h2 className={cn("text-[11px] font-bold uppercase tracking-[0.08em] text-[#56615a] mb-3", className)}>{children}</h2>;
+}
+
+// Inline error line used under forms and lists.
+function FormError({ children, className }) {
+  return (
+    <p role="alert" className={cn("flex items-start gap-1.5 text-[12.5px] font-medium text-rose-600", className)}>
+      <AlertCircle className="h-3.5 w-3.5 mt-[3px] shrink-0" /><span>{children}</span>
+    </p>
+  );
+}
+
+// Quiet callout box (info / success / warning).
+const NOTICE_TONES = {
+  info: "bg-indigo-50 border-indigo-200 text-indigo-800",
+  success: "bg-emerald-50 border-emerald-200 text-emerald-800",
+  warning: "bg-amber-50 border-amber-200 text-amber-800",
+};
+function Notice({ tone = "info", children, className }) {
+  return <div className={cn("rounded-lg border px-3.5 py-2.5 text-[12.5px] leading-relaxed", NOTICE_TONES[tone], className)}>{children}</div>;
+}
+
+function Spinner({ className }) {
+  return <span className={cn("inline-block h-5 w-5 rounded-full border-2 border-indigo-200 border-t-indigo-600 animate-spin", className)} aria-hidden="true" />;
+}
+
+function LoadingScreen({ label = "Loading…" }) {
+  return (
+    <div className="flex h-screen flex-col items-center justify-center gap-3 bg-canvas text-[13px] text-muted-foreground" role="status">
+      <Spinner />{label}
+    </div>
+  );
+}
+
+// Dashboard metric: label + small icon on top, value, muted note.
+function StatCard({ label, value, note, Icon, tone, onClick }) {
+  const Comp = onClick ? "button" : "div";
+  return (
+    <Comp onClick={onClick}
+      className={cn("text-left flex flex-col rounded-xl border border-border bg-white px-[18px] py-4 min-h-[116px] transition-colors",
+        onClick && "hover:border-indigo-300 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-indigo-100")}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11.5px] font-semibold leading-snug text-[#737b75]">{label}</span>
+        <span className={cn("h-7 w-7 rounded-lg flex items-center justify-center shrink-0", tone === "alert" ? "bg-rose-50 text-rose-600" : "bg-indigo-50 text-indigo-800")}>
+          <Icon className="h-3.5 w-3.5" />
+        </span>
+      </div>
+      <div className="mt-auto pt-3">
+        <div className={cn("text-[28px] font-bold tracking-[-0.03em] leading-none", tone === "alert" && "text-rose-600")}>{value}</div>
+        <div className="text-[11px] text-[#949b95] mt-1.5">{note}</div>
+      </div>
+    </Comp>
+  );
 }
 
 // Modal body with a guaranteed height cap + internal scroll, using INLINE styles
@@ -153,7 +209,7 @@ function ModalContent({ size = "lg", children }) {
       className="p-0"
       style={{ maxWidth: MAXW[size], width: "calc(100vw - 32px)", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}
     >
-      <div style={{ overflowY: "auto", padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
+      <div className="scroll-quiet" style={{ overflowY: "auto", padding: 28, display: "flex", flexDirection: "column", gap: 18 }}>
         {children}
       </div>
     </DialogContent>
@@ -172,7 +228,7 @@ function ConfirmDialog({ open, title, body, confirmLabel = "Confirm", danger, on
         </DialogHeader>
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" className="flex-1" onClick={onCancel}>Cancel</Button>
-          <Button className={cn("flex-1", danger && "bg-rose-600 hover:bg-rose-700")} onClick={onConfirm}>{confirmLabel}</Button>
+          <Button className={cn("flex-1", danger && "bg-destructive hover:bg-rose-700")} onClick={onConfirm}>{confirmLabel}</Button>
         </DialogFooter>
       </ModalContent>
     </Dialog>
@@ -250,8 +306,21 @@ function CategorySelect({ categories, value, onChange }) {
 }
 
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
-function BrandMark({ className }) {
-  return <img src={o2hLogo} alt="o2h technology" className={cn("object-contain", className)} />;
+function BrandMark({ className, light }) {
+  return <img src={light ? o2hLogoLight : o2hLogo} alt="o2h technology" className={cn("object-contain", className)} />;
+}
+
+// Split forest-green / sage backdrop shared by the auth screens.
+const AUTH_BG = { background: "linear-gradient(135deg, #193525 0%, #294b38 48%, #e8ece9 48%, #e8ece9 100%)" };
+
+function AuthCard({ children }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center p-5 sm:p-8" style={AUTH_BG}>
+      <div className="w-full max-w-[420px] rounded-[18px] border border-[#e8ece8] bg-white px-6 py-9 sm:px-10 sm:py-10 shadow-[0_24px_65px_rgba(19,39,27,0.18)]">
+        {children}
+      </div>
+    </div>
+  );
 }
 
 // The role picked here is checked against the role stored on the account
@@ -278,62 +347,62 @@ function LoginScreen({ onSignInAs, roleError }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-5 bg-gradient-to-br from-indigo-50 via-background to-indigo-100">
-      <Card className="w-full max-w-sm shadow-xl border-border/60">
-        <CardContent className="p-8">
-          <div className="flex flex-col items-center text-center mb-6">
-            <BrandMark className="h-14 mb-3" />
-            <div className="text-lg font-bold tracking-tight">TrainTrack</div>
-            <div className="text-xs text-muted-foreground">BAPM team learning, made accountable.</div>
-          </div>
+    <AuthCard>
+      <div className="flex flex-col items-center text-center mb-8">
+        <BrandMark className="h-14" />
+        <div className="text-[18px] font-bold tracking-[-0.01em] mt-4">TrainTrack</div>
+        <div className="text-[12px] text-muted-foreground mt-1">BAPM team learning, made accountable.</div>
+      </div>
 
-          {stage === "signin" && (
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label>Sign in as</Label>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {Object.entries(ROLE_LABELS).map(([r, label]) => (
-                    <button key={r} type="button" onClick={() => { setRole(r); setErr(""); }}
-                      className={cn("rounded-lg border px-2 py-2 text-[12px] font-semibold leading-tight transition",
-                        role === r ? "border-indigo-400 bg-indigo-50 text-indigo-700" : "bg-card text-muted-foreground hover:border-muted-foreground/40")}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Email <span className="text-rose-500">*</span></Label>
-                <Input type="email" value={email} onChange={e => { setEmail(e.target.value); setErr(""); }} placeholder="name@company.com" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Password <span className="text-rose-500">*</span></Label>
-                <Input type="password" value={password} onChange={e => { setPassword(e.target.value); setErr(""); }} onKeyDown={e => e.key === "Enter" && doSignIn()} placeholder="Your password" />
-              </div>
-              {shownErr && <p className="text-sm text-rose-600">⚠ {shownErr}</p>}
-              <Button className="w-full" disabled={!email || !password || busy} onClick={doSignIn}>{busy ? "Signing in…" : "Sign In →"}</Button>
-              <button className="text-center text-[12px] text-indigo-700 hover:underline w-full" onClick={() => { setStage("forgot"); setErr(""); }}>Forgot your password?</button>
+      {stage === "signin" && (
+        <form className="space-y-4" onSubmit={e => { e.preventDefault(); if (email && password && !busy) doSignIn(); }}>
+          <div>
+            <div className="text-[12px] font-bold text-[#525b54] mb-2.5" id="role-label">Sign in as</div>
+            <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-labelledby="role-label">
+              {Object.entries(ROLE_LABELS).map(([r, label]) => (
+                <button key={r} type="button" role="radio" aria-checked={role === r} onClick={() => { setRole(r); setErr(""); }}
+                  className={cn("h-12 rounded-[9px] border px-2 text-[12px] font-semibold leading-tight transition-colors",
+                    role === r ? "border-indigo-500 bg-indigo-50 text-indigo-800 shadow-[inset_0_0_0_1px_rgba(115,155,92,0.15)]" : "border-[#dfe4df] bg-white text-[#525a54] hover:border-[#c5cec7]")}>
+                  {label}
+                </button>
+              ))}
             </div>
-          )}
-          {stage === "forgot" && (
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label>Registered email <span className="text-rose-500">*</span></Label>
-                <Input type="email" value={email} onChange={e => { setEmail(e.target.value); setErr(""); }} onKeyDown={e => e.key === "Enter" && doForgot()} placeholder="name@company.com" />
-              </div>
-              {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
-              <Button className="w-full" disabled={!email || busy} onClick={doForgot}>{busy ? "Sending…" : "Send reset link"}</Button>
-              <button className="text-center text-[12px] text-muted-foreground hover:underline w-full" onClick={() => setStage("signin")}>Back to sign in</button>
-            </div>
-          )}
-          {stage === "forgot-sent" && (
-            <div className="space-y-3">
-              <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3.5 py-2.5 text-[12.5px] text-emerald-700">✅ Check your email for a password reset link.</div>
-              <Button variant="outline" className="w-full" onClick={() => setStage("signin")}>Back to sign in</Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="login-email">Email <span className="text-rose-600">*</span></Label>
+            <Input id="login-email" type="email" autoComplete="email" className="h-11" value={email} onChange={e => { setEmail(e.target.value); setErr(""); }} placeholder="name@company.com" />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="login-password">Password <span className="text-rose-600">*</span></Label>
+            <Input id="login-password" type="password" autoComplete="current-password" className="h-11" value={password} onChange={e => { setPassword(e.target.value); setErr(""); }} placeholder="Your password" />
+          </div>
+          {shownErr && <FormError>{shownErr}</FormError>}
+          <Button type="submit" className="w-full h-11" disabled={!email || !password || busy}>{busy ? "Signing in…" : <>Sign in <span className="opacity-80">→</span></>}</Button>
+          <button type="button" className="block mx-auto text-[12px] text-[#6d756f] hover:text-indigo-700 transition-colors pt-1" onClick={() => { setStage("forgot"); setErr(""); }}>Forgot your password?</button>
+        </form>
+      )}
+      {stage === "forgot" && (
+        <form className="space-y-4" onSubmit={e => { e.preventDefault(); if (email && !busy) doForgot(); }}>
+          <div>
+            <div className="text-[15px] font-bold">Reset your password</div>
+            <p className="text-[12.5px] text-muted-foreground mt-1">We'll email you a link to set a new password.</p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="forgot-email">Registered email <span className="text-rose-600">*</span></Label>
+            <Input id="forgot-email" type="email" autoComplete="email" className="h-11" value={email} onChange={e => { setEmail(e.target.value); setErr(""); }} placeholder="name@company.com" />
+          </div>
+          {err && <FormError>{err}</FormError>}
+          <Button type="submit" className="w-full h-11" disabled={!email || busy}>{busy ? "Sending…" : "Send reset link"}</Button>
+          <button type="button" className="block mx-auto text-[12px] text-[#6d756f] hover:text-indigo-700 transition-colors" onClick={() => setStage("signin")}>Back to sign in</button>
+        </form>
+      )}
+      {stage === "forgot-sent" && (
+        <div className="space-y-4">
+          <Notice tone="success">Check your email for a password reset link.</Notice>
+          <Button variant="outline" className="w-full h-11" onClick={() => setStage("signin")}>Back to sign in</Button>
+        </div>
+      )}
+    </AuthCard>
   );
 }
 
@@ -348,19 +417,55 @@ function ForcePasswordChange({ onDone, onCancel, recovery }) {
     setBusy(false);
   };
   return (
-    <div className="min-h-screen flex items-center justify-center p-5 bg-gradient-to-br from-indigo-50 via-background to-indigo-100">
-      <Card className="w-full max-w-sm shadow-xl border-border/60">
-        <CardContent className="p-8 space-y-3">
-          <BrandMark className="h-10 mb-2" />
-          <div className="flex items-center gap-2 text-[15px] font-bold mb-2"><ShieldCheck className="h-4 w-4 text-indigo-600" />{recovery ? "Reset your password" : "Set your password"}</div>
-          <p className="text-[12.5px] text-muted-foreground mb-2">{recovery ? "Choose a new password for your account." : "Welcome to TrainTrack! Choose a password only you know — you'll use it with your email to sign in."}</p>
-          <div className="space-y-1.5"><Label>New password</Label><Input type="password" value={np} onChange={e => { setNp(e.target.value); setErr(""); }} /></div>
-          <div className="space-y-1.5"><Label>Confirm password</Label><Input type="password" value={cp} onChange={e => { setCp(e.target.value); setErr(""); }} onKeyDown={e => e.key === "Enter" && submit()} /></div>
-          {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
-          <Button className="w-full" disabled={busy} onClick={submit}>{busy ? "Saving…" : "Set password & continue"}</Button>
-          {onCancel && <button className="text-center text-[12px] text-muted-foreground hover:underline w-full" onClick={onCancel}>Cancel and sign out</button>}
-        </CardContent>
-      </Card>
+    <AuthCard>
+      <form className="space-y-4" onSubmit={e => { e.preventDefault(); if (!busy) submit(); }}>
+        <BrandMark className="h-10 mb-2" />
+        <div>
+          <div className="flex items-center gap-2 text-[16px] font-bold"><ShieldCheck className="h-4 w-4 text-indigo-600" />{recovery ? "Reset your password" : "Set your password"}</div>
+          <p className="text-[12.5px] text-muted-foreground mt-1.5 leading-relaxed">{recovery ? "Choose a new password for your account." : "Welcome to TrainTrack! Choose a password only you know — you'll use it with your email to sign in."}</p>
+        </div>
+        <div className="space-y-2"><Label htmlFor="np">New password</Label><Input id="np" type="password" autoComplete="new-password" className="h-11" value={np} onChange={e => { setNp(e.target.value); setErr(""); }} /></div>
+        <div className="space-y-2"><Label htmlFor="cp">Confirm password</Label><Input id="cp" type="password" autoComplete="new-password" className="h-11" value={cp} onChange={e => { setCp(e.target.value); setErr(""); }} /></div>
+        {err && <FormError>{err}</FormError>}
+        <Button type="submit" className="w-full h-11" disabled={busy}>{busy ? "Saving…" : "Set password & continue"}</Button>
+        {onCancel && <button type="button" className="block mx-auto text-[12px] text-[#6d756f] hover:text-indigo-700 transition-colors" onClick={onCancel}>Cancel and sign out</button>}
+      </form>
+    </AuthCard>
+  );
+}
+
+// ── APP SHELL ─────────────────────────────────────────────────────────────────
+// Deep-green sidebar + sage canvas + white workspace. Below lg the sidebar
+// becomes a drawer opened from a slim top bar.
+function AppShell({ renderSidebar, children }) {
+  const [drawer, setDrawer] = useState(false);
+  useEffect(() => {
+    if (!drawer) return;
+    const onKey = e => e.key === "Escape" && setDrawer(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawer]);
+  return (
+    <div className="flex h-screen overflow-hidden bg-canvas font-sans text-foreground">
+      <div className="hidden lg:flex">{renderSidebar(() => {})}</div>
+      {drawer && (
+        <div className="fixed inset-0 z-[250] lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
+          <div className="absolute inset-0 bg-[#142019]/45" onClick={() => setDrawer(false)} />
+          <div className="relative h-full w-[264px] max-w-[85vw]">{renderSidebar(() => setDrawer(false))}</div>
+        </div>
+      )}
+      <div className="flex-1 min-w-0 flex flex-col">
+        <div className="lg:hidden flex items-center gap-3 h-14 px-4 bg-sidebar text-white shrink-0">
+          <button type="button" aria-label="Open navigation" className="rounded-md p-1.5 -ml-1.5 hover:bg-white/10 transition-colors" onClick={() => setDrawer(true)}><Menu className="h-5 w-5" /></button>
+          <BrandMark light className="h-7" />
+          <span className="border-l border-white/20 pl-2.5 text-[14px] font-bold">TrainTrack</span>
+        </div>
+        <main className="flex-1 overflow-auto scroll-quiet p-2 sm:p-3.5">
+          <div className="min-h-full rounded-[18px] bg-workspace px-4 py-6 sm:px-8 sm:py-8 xl:px-9">
+            {children}
+          </div>
+        </main>
+      </div>
     </div>
   );
 }
@@ -388,37 +493,43 @@ function Sidebar({ profile, tab, setTab, onLogout, myDone, myTotal, trainings, c
     { id: "knowledge-hub", icon: Lightbulb, label: "Knowledge Hub" },
   ];
   return (
-    <aside className="w-60 bg-card border-r flex flex-col p-3.5 shrink-0">
-      <div className="flex items-center gap-2.5 px-2 pt-1">
-        <BrandMark className="h-9 w-14 shrink-0" />
-        <span className="text-base font-bold tracking-tight">TrainTrack</span>
+    <aside className="w-[244px] h-full flex flex-col shrink-0 bg-gradient-to-b from-sidebar to-sidebar-deep text-[#eef4ef] px-3.5 pt-5 pb-3.5">
+      <div className="flex items-center gap-2.5 px-2 pb-6">
+        <BrandMark light className="h-9 w-auto shrink-0" />
+        <span className="border-l border-white/20 pl-2.5 text-[14px] font-bold tracking-[-0.01em] text-white">TrainTrack</span>
       </div>
-      {isManager && <div className="px-2 pt-2 pb-4"><FYBadge fy={currentFY} /></div>}
-      <nav className={cn("flex-1 space-y-1", !isManager && "mt-4")}>
+      <div className="flex items-center justify-between px-2.5 pb-2">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#aebdb2]">Workspace</span>
+        {isManager && <span className="text-[10.5px] font-semibold text-white/65 border border-white/15 rounded-full px-2 py-px">FY {currentFY}</span>}
+      </div>
+      <nav className="flex-1 space-y-0.5 overflow-y-auto" aria-label="Main">
         {nav.map(item => {
           const active = tab === item.id; const Icon = item.icon;
           return (
-            <button key={item.id} onClick={() => setTab(item.id)}
-              className={cn("w-full flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition",
-                active ? "bg-indigo-50 text-indigo-700" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
-              <span className="flex items-center gap-2.5"><Icon className="h-[18px] w-[18px]" />{item.label}</span>
+            <button key={item.id} onClick={() => setTab(item.id)} aria-current={active ? "page" : undefined}
+              className={cn("w-full flex items-center justify-between rounded-lg px-2.5 h-10 text-[13px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+                active ? "bg-[rgba(221,237,224,0.13)] text-white font-semibold" : "text-[#d3ded6] hover:bg-white/[0.07] hover:text-white")}>
+              <span className="flex items-center gap-2.5"><Icon className={cn("h-[17px] w-[17px]", active ? "opacity-100" : "opacity-80")} />{item.label}</span>
               {item.badge != null && (
-                <span className={cn("text-[11px] font-bold rounded-full px-2 py-0.5 border",
-                  active ? "bg-white text-indigo-700 border-indigo-200" : "bg-muted text-muted-foreground border-border")}>{item.badge}</span>
+                <span className={cn("text-[10.5px] font-bold rounded-full px-1.5 min-w-[22px] h-5 inline-flex items-center justify-center",
+                  active ? "bg-white/90 text-sidebar" : "bg-white/[0.12] text-white/85")}>{item.badge}</span>
               )}
             </button>
           );
         })}
       </nav>
-      <Separator className="my-3" />
-      <div className="flex items-center gap-2.5 px-2 mb-2.5">
-        <UAvatar name={profile.full_name} color={profile.color} className="h-8 w-8" />
-        <div className="min-w-0">
-          <div className="text-[13px] font-semibold truncate">{profile.full_name.split(" ")[0]}</div>
-          <div className="text-[11px] text-muted-foreground">{ROLE_LABELS[profile.role]}</div>
+      <div className="mt-3 border-t border-white/[0.14] pt-3">
+        <div className="flex items-center gap-2.5 px-2 pb-3">
+          <UAvatar solid name={profile.full_name} color={profile.color} className="h-8 w-8 ring-2 ring-white/10" />
+          <div className="min-w-0">
+            <div className="text-[12.5px] font-semibold text-white truncate">{profile.full_name}</div>
+            <div className="text-[10.5px] text-[#b4c1b8] mt-0.5">{ROLE_LABELS[profile.role]}</div>
+          </div>
         </div>
+        <button onClick={onLogout} className="w-full h-9 rounded-lg border border-white/[0.13] bg-white/[0.06] text-[12px] font-medium text-[#e3ebe5] inline-flex items-center justify-center gap-2 hover:bg-white/[0.1] transition-colors">
+          <LogOut className="h-3.5 w-3.5" />Logout
+        </button>
       </div>
-      <Button variant="outline" size="sm" className="w-full" onClick={onLogout}><LogOut className="h-3.5 w-3.5 mr-1.5" />Logout</Button>
     </aside>
   );
 }
@@ -435,10 +546,10 @@ function Dashboard({ reportees, trainings, onAdd, onBulk, onRefresh, refreshing,
   const stars = reportees.filter(u => getAchievement(u, fyT) === "star");
 
   const stats = [
-    { key: "members", label: "Team Members", value: reportees.length, note: "active", Icon: Users, tint: "bg-indigo-50 text-indigo-600" },
-    { key: "units", label: "Training Units", value: totalU, note: `${fyT.length} trainings`, Icon: Package, tint: "bg-emerald-50 text-emerald-600" },
-    { key: "completion", label: "Completion", value: `${pct}%`, note: `${doneU}/${totalU} units`, Icon: Target, tint: "bg-amber-50 text-amber-600" },
-    { key: "overdue", label: "Overdue", value: overdueList.length, note: "need action", Icon: Clock, tint: overdueList.length ? "bg-rose-50 text-rose-600" : "bg-muted text-muted-foreground" },
+    { key: "members", label: "Team Members", value: reportees.length, note: "active", Icon: Users },
+    { key: "units", label: "Training Units", value: totalU, note: `${fyT.length} trainings`, Icon: Package },
+    { key: "completion", label: "Completion", value: `${pct}%`, note: `${doneU}/${totalU} units`, Icon: Target },
+    { key: "overdue", label: "Overdue", value: overdueList.length, note: "need action", Icon: Clock, tone: overdueList.length ? "alert" : undefined },
   ];
 
   const userName = id => (reportees.find(u => u.id === id) || {}).full_name || "Unknown";
@@ -446,14 +557,14 @@ function Dashboard({ reportees, trainings, onAdd, onBulk, onRefresh, refreshing,
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-4 flex-wrap mb-6">
+      <div className="flex items-start justify-between gap-4 flex-wrap mb-7">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Team Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Training progress overview</p>
+          <h1 className="text-[23px] sm:text-[25px] font-bold tracking-[-0.025em] leading-tight text-foreground">Team Dashboard</h1>
+          <p className="text-[12.5px] text-muted-foreground mt-1.5">Training progress overview</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           <Select value={fyFilter} onValueChange={setFyFilter}>
-            <SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-[136px]"><SelectValue /></SelectTrigger>
             <SelectContent>{fyList.map(fy => <SelectItem key={fy} value={fy}>FY {fy}</SelectItem>)}</SelectContent>
           </Select>
           <Button variant="outline" size="sm" onClick={onRefresh}><RefreshCw className={cn("h-4 w-4 mr-1.5", refreshing && "animate-spin")} />Refresh</Button>
@@ -464,16 +575,16 @@ function Dashboard({ reportees, trainings, onAdd, onBulk, onRefresh, refreshing,
       </div>
 
       {stars.length > 0 && (
-        <Card className="mb-5 border-amber-200 bg-gradient-to-br from-amber-50 to-yellow-50/50">
+        <Card className="mb-6 border-amber-200 bg-amber-50/60">
           <CardContent className="p-5">
-            <div className="text-sm font-bold text-amber-800 mb-3">🌟 Star Performers — FY {fyFilter}</div>
+            <div className="text-sm font-bold text-amber-800 mb-3">Star Performers — FY {fyFilter}</div>
             <div className="flex flex-wrap gap-3">
               {stars.map(u => (
                 <div key={u.id} className="flex items-center gap-2.5 bg-card border border-amber-200 rounded-xl px-4 py-2.5">
                   <UAvatar name={u.full_name} color={u.color} className="h-8 w-8" />
                   <div>
                     <div className="text-[13px] font-semibold">{u.full_name}</div>
-                    <div className="text-[11px] text-amber-700">All trainings completed! 🎉</div>
+                    <div className="text-[11px] text-amber-700">All trainings completed!</div>
                   </div>
                 </div>
               ))}
@@ -483,27 +594,12 @@ function Dashboard({ reportees, trainings, onAdd, onBulk, onRefresh, refreshing,
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {stats.map(s => {
-          const Icon = s.Icon;
-          return (
-            <Card key={s.key} className="cursor-pointer hover:shadow-md hover:border-indigo-200 transition" onClick={() => setDrill(s.key)}>
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <div className={cn("h-9 w-9 rounded-lg flex items-center justify-center", s.tint)}><Icon className="h-[18px] w-[18px]" /></div>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground/40" />
-                </div>
-                <div className="text-3xl font-bold tracking-tight leading-none">{s.value}</div>
-                <div className="text-[13px] font-semibold mt-1.5">{s.label}</div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">{s.note}</div>
-              </CardContent>
-            </Card>
-          );
-        })}
+        {stats.map(s => <StatCard key={s.key} label={s.label} value={s.value} note={s.note} Icon={s.Icon} tone={s.tone} onClick={() => setDrill(s.key)} />)}
       </div>
 
       <SectionLabel>Individual Progress — FY {fyFilter}</SectionLabel>
       {reportees.length === 0 ? (
-        <Card className="border-dashed"><CardContent className="p-11 text-center text-sm text-muted-foreground">No reportees yet. Add them in Settings.</CardContent></Card>
+        <Card className="border-dashed bg-table-head"><CardContent className="p-11 text-center text-[13px] text-muted-foreground">No reportees yet. Add them in Settings.</CardContent></Card>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
           {reportees.map(u => {
@@ -517,7 +613,7 @@ function Dashboard({ reportees, trainings, onAdd, onBulk, onRefresh, refreshing,
             const od = pending.filter(t => isOverdue(t.due_date));
             const ach = getAchievement(u, fyT);
             return (
-              <Card key={u.id} className="hover:shadow-md transition-shadow">
+              <Card key={u.id} className="hover:border-indigo-200 transition-colors">
                 <CardContent className="p-5">
                   <div className="flex items-center gap-3 mb-3">
                     <UAvatar name={u.full_name} color={u.color} className="h-10 w-10" />
@@ -565,14 +661,14 @@ function Dashboard({ reportees, trainings, onAdd, onBulk, onRefresh, refreshing,
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-muted/50 border-b">
-                <th className="text-left font-medium text-muted-foreground px-4 py-3 text-xs uppercase tracking-wide">Member</th>
+              <tr className="bg-table-head border-b">
+                <th className="text-left font-medium text-muted-foreground px-4 py-3 text-[10.5px] font-semibold uppercase tracking-[0.06em]">Member</th>
                 {fyList.map(fy => <th key={fy} className="text-center font-medium text-muted-foreground px-3 py-3 text-xs">FY {fy}</th>)}
               </tr>
             </thead>
             <tbody>
               {reportees.map(u => (
-                <tr key={u.id} className="border-b last:border-0">
+                <tr key={u.id} className="border-b last:border-0 hover:bg-[#f7f9f7] transition-colors">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2.5">
                       <UAvatar name={u.full_name} color={u.color} className="h-6 w-6" />
@@ -687,7 +783,7 @@ function DashboardDrill({ which, onClose, fyFilter, members, fyT, overdueList, u
 
         {which === "overdue" && (
           <div className="space-y-1">
-            {overdueList.length === 0 ? <p className="text-sm text-emerald-600 text-center py-6 font-medium">🎉 Nothing overdue. Great going!</p>
+            {overdueList.length === 0 ? <p className="text-sm text-emerald-600 text-center py-6 font-medium">Nothing overdue. Great going!</p>
               : overdueList.map(t => <TrainingMiniRow key={t.id} t={t} who={userName(t.assigned_to)} whoColor={userColor(t.assigned_to)} onDetail={onDetail} />)}
           </div>
         )}
@@ -756,13 +852,13 @@ function MyTrainings({ trainings, requests, onRequestApproval, onDetail, onStart
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
+      <div className="flex items-start justify-between gap-4 flex-wrap mb-7">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">My Trainings</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{doneU}/{totalU} units completed in FY {fyFilter}</p>
+          <h1 className="text-[23px] sm:text-[25px] font-bold tracking-[-0.025em] leading-tight text-foreground">My Trainings</h1>
+          <p className="text-[12.5px] text-muted-foreground mt-1.5">{doneU}/{totalU} units completed in FY {fyFilter}</p>
         </div>
         <Select value={fyFilter} onValueChange={setFyFilter}>
-          <SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="w-[136px]"><SelectValue /></SelectTrigger>
           <SelectContent>{fyList.map(fy => <SelectItem key={fy} value={fy}>FY {fy}</SelectItem>)}</SelectContent>
         </Select>
       </div>
@@ -771,11 +867,11 @@ function MyTrainings({ trainings, requests, onRequestApproval, onDetail, onStart
         {filters.map(([f, l]) => (
           <button key={f} onClick={() => setFilter(f)}
             className={cn("px-4 py-1.5 rounded-full text-[13px] font-medium border transition",
-              filter === f ? "bg-indigo-50 border-indigo-300 text-indigo-700" : "bg-card border-border text-muted-foreground hover:border-muted-foreground/30")}>{l}</button>
+              filter === f ? "bg-indigo-50 border-indigo-400 text-indigo-800 font-semibold" : "bg-white border-border text-muted-foreground hover:border-[#c5cec7] hover:text-foreground")}>{l}</button>
         ))}
       </div>
 
-      {err && <p className="text-sm text-rose-600 mb-3">⚠ {err}</p>}
+      {err && <FormError className="mb-3">{err}</FormError>}
       <Card className="overflow-hidden">
         {filtered.length === 0 ? (
           <div className="p-11 text-center text-sm text-muted-foreground">No trainings in this filter.</div>
@@ -799,7 +895,7 @@ function MyTrainings({ trainings, requests, onRequestApproval, onDetail, onStart
                   <div className="text-xs text-muted-foreground mt-1 flex gap-3 flex-wrap">
                     {t.due_date && <span className={cn(isOverdue(t.due_date) && status !== "approved" && "text-rose-600")}><CalendarDays className="h-3 w-3 inline mr-0.5" />Due {fmtDate(t.due_date)}</span>}
                     {!isM && t.completed_date && <span>✓ {fmtDate(t.completed_date)}</span>}
-                    {cleanLinks(t.resources).length > 0 && <span className="text-indigo-600">📎 {cleanLinks(t.resources).length} resource(s)</span>}
+                    {cleanLinks(t.resources).length > 0 && <span className="text-indigo-600">{cleanLinks(t.resources).length} resource(s)</span>}
                     {isM && <span>{isE ? "▲ Collapse" : "▼ View parts"}</span>}
                   </div>
                   {!isM && status === "sent_back" && wholeReq?.manager_remarks && (
@@ -815,7 +911,7 @@ function MyTrainings({ trainings, requests, onRequestApproval, onDetail, onStart
                     <div className="flex items-center gap-2 mt-2" onClick={e => e.stopPropagation()}>
                       <Progress value={t.progress_pct || 0} className="h-1.5 flex-1" />
                       <Select value={String(t.progress_pct || 0)} onValueChange={v => run(t.id, () => onProgress(t.id, Number(v)))}>
-                        <SelectTrigger className="h-7 w-[92px] text-[11.5px]"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="h-8 w-[118px] text-[12px]" aria-label="Progress"><SelectValue /></SelectTrigger>
                         <SelectContent>{PROGRESS_STEPS.map(p => <SelectItem key={p} value={String(p)}>{p}% done</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
@@ -851,7 +947,7 @@ function MyTrainings({ trainings, requests, onRequestApproval, onDetail, onStart
                     );
                   })}
                   {status === "pending" && <div className="text-xs text-muted-foreground bg-card border rounded-lg px-3 py-1.5 my-2.5">Start this training to mark its parts as done.</div>}
-                  {pd === pt && pt > 0 && <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5 my-2.5">🎉 All parts completed! This training is fully done.</div>}
+                  {pd === pt && pt > 0 && <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5 my-2.5">All parts completed! This training is fully done.</div>}
                 </div>
               )}
             </div>
@@ -905,9 +1001,9 @@ function KnowledgeHub({ trainings, reportees, requests, onDetail }) {
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="text-2xl font-bold tracking-tight">Knowledge Hub</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">A shared library of completed trainings — browse what your teammates learned and where they learned it.</p>
+      <div className="mb-7">
+        <h1 className="text-[23px] sm:text-[25px] font-bold tracking-[-0.025em] leading-tight text-foreground">Knowledge Hub</h1>
+        <p className="text-[12.5px] text-muted-foreground mt-1.5">A shared library of completed trainings — browse what your teammates learned and where they learned it.</p>
       </div>
       <div className="flex gap-2.5 mb-5">
         <div className="relative flex-1">
@@ -924,7 +1020,7 @@ function KnowledgeHub({ trainings, reportees, requests, onDetail }) {
       </div>
 
       {groups.length === 0 ? (
-        <Card className="border-dashed"><CardContent className="p-14 text-center text-sm text-muted-foreground">{completed.length === 0 ? "No completed trainings yet — once someone finishes a training, it'll appear here for everyone to learn from. 🚀" : "No results found."}</CardContent></Card>
+        <Card className="border-dashed bg-table-head"><CardContent className="p-14 text-center text-[13px] text-muted-foreground">{completed.length === 0 ? "No completed trainings yet — once someone finishes a training, it'll appear here for everyone to learn from." : "No results found."}</CardContent></Card>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {groups.map(g => {
@@ -932,7 +1028,7 @@ function KnowledgeHub({ trainings, reportees, requests, onDetail }) {
             const shown = g.contributors.slice(0, 4);
             const extra = g.contributors.length - shown.length;
             return (
-              <Card key={g.key} className="hover:shadow-md transition-shadow cursor-pointer flex flex-col" onClick={() => setOpenGroup(g)}>
+              <Card key={g.key} className="hover:border-indigo-200 transition-colors cursor-pointer flex flex-col" onClick={() => setOpenGroup(g)}>
                 <CardContent className="p-5 flex flex-col h-full">
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="flex items-center gap-2.5 min-w-0">
@@ -995,7 +1091,7 @@ function KnowledgeDetailModal({ group, reportees, requests, onClose }) {
             const trainingRes = cleanLinks(t.resources);
             return (
               <div key={t.id} className="border rounded-xl overflow-hidden">
-                <div className="flex items-center gap-3 px-4 py-3 bg-muted/50 border-b">
+                <div className="flex items-center gap-3 px-4 py-3 bg-table-head border-b">
                   <UAvatar name={u.full_name} color={u.color} className="h-8 w-8" />
                   <div className="flex-1 min-w-0">
                     <div className="text-[13px] font-semibold">{u.full_name}</div>
@@ -1026,7 +1122,7 @@ function KnowledgeDetailModal({ group, reportees, requests, onClose }) {
                           {r?.notes ? <p className="text-[13px] text-foreground/90 leading-relaxed whitespace-pre-wrap">{r.notes}</p> : <p className="text-[12.5px] text-muted-foreground italic">No notes added.</p>}
                           {oc.length > 0 && (
                             <div>
-                              <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">📎 Outcome references</div>
+                              <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">Outcome references</div>
                               {oc.map((l, i) => <LinkRow key={i} link={l} theme="indigo" />)}
                             </div>
                           )}
@@ -1037,7 +1133,7 @@ function KnowledgeDetailModal({ group, reportees, requests, onClose }) {
 
                   {trainingRes.length > 0 && (
                     <div className="pt-1">
-                      <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">📌 Reference material used</div>
+                      <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">Reference material used</div>
                       <LinkChips links={trainingRes} />
                     </div>
                   )}
@@ -1073,7 +1169,7 @@ function DetailModal({ training, part: focusPart, reportees, requests, onClose, 
         </div>
         {part.part_link && (
           <div className="mb-3">
-            <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">📌 Reference material for this part:</div>
+            <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">Reference material for this part:</div>
             <LinkRow link={{ url: part.part_link, title: "Part material" }} theme="amber" />
           </div>
         )}
@@ -1082,7 +1178,7 @@ function DetailModal({ training, part: focusPart, reportees, requests, onClose, 
             <div className="text-xs text-muted-foreground mb-2">✓ Completed {fmtDate(part.completed_date)}</div>
             {r?.notes && <div className="text-[13px] leading-relaxed mb-2.5 whitespace-pre-wrap bg-card rounded-lg p-3 border">{r.notes}</div>}
             {r?.manager_remarks && <div className="text-[12.5px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 mb-2.5"><strong>Manager's remarks:</strong> {r.manager_remarks}</div>}
-            {oc.length > 0 && <><div className="text-[11px] font-semibold text-muted-foreground mb-1.5">📎 Outcome references:</div>{oc.map((l, i) => <LinkRow key={i} link={l} theme="indigo" />)}</>}
+            {oc.length > 0 && <><div className="text-[11px] font-semibold text-muted-foreground mb-1.5">Outcome references:</div>{oc.map((l, i) => <LinkRow key={i} link={l} theme="indigo" />)}</>}
           </>
         ) : (
           <div className="text-[13px] text-muted-foreground italic">Not completed yet.</div>
@@ -1120,12 +1216,12 @@ function DetailModal({ training, part: focusPart, reportees, requests, onClose, 
         </div>
 
         <div>
-          <div className="text-[13px] font-bold mb-2.5">📌 Training Material</div>
+          <div className="text-[13px] font-bold mb-2.5">Training Material</div>
           <LinkRow link={{ url: training.training_link, title: "Training material" }} theme="amber" />
         </div>
         {resources.length > 0 && (
           <div>
-            <div className="text-[13px] font-bold mb-2.5">📎 Additional Reference Material</div>
+            <div className="text-[13px] font-bold mb-2.5">Additional Reference Material</div>
             {resources.map((l, i) => <LinkRow key={i} link={l} theme="amber" />)}
           </div>
         )}
@@ -1138,19 +1234,19 @@ function DetailModal({ training, part: focusPart, reportees, requests, onClose, 
 
         {isM ? (
           <div>
-            <div className="text-[13px] font-bold mb-3">📋 Parts & Learnings</div>
+            <div className="text-[13px] font-bold mb-3">Parts & Learnings</div>
             {sortedParts(training).map((part, pi) => <PartSec key={part.id} part={part} n={pi + 1} />)}
           </div>
         ) : (
           <>
             <div>
-              <div className="text-[13px] font-bold mb-2.5">📝 Key Learnings & Outcome Notes</div>
+              <div className="text-[13px] font-bold mb-2.5">Key Learnings & Outcome Notes</div>
               <div className="bg-muted/50 rounded-xl p-4 text-sm leading-relaxed border whitespace-pre-wrap min-h-[60px]">
                 {wholeReq?.notes || <span className="text-muted-foreground italic">{status === "approved" ? "No notes added." : "Not completed yet."}</span>}
               </div>
             </div>
             <div>
-              <div className="text-[13px] font-bold mb-2.5">📎 Outcome Reference Material</div>
+              <div className="text-[13px] font-bold mb-2.5">Outcome Reference Material</div>
               {cleanLinks(wholeReq?.outcome_links).length > 0
                 ? cleanLinks(wholeReq?.outcome_links).map((l, i) => <LinkRow key={i} link={l} theme="indigo" />)
                 : <div className="p-3.5 bg-muted/50 rounded-xl border border-dashed text-[13px] text-muted-foreground italic">{status === "approved" ? "No reference material added." : "Not completed yet."}</div>}
@@ -1158,9 +1254,9 @@ function DetailModal({ training, part: focusPart, reportees, requests, onClose, 
           </>
         )}
         <DialogFooter className="gap-2 sm:gap-2">
-          {onDelete && <Button variant="outline" className="text-rose-600 border-rose-200 hover:bg-rose-50" onClick={() => setConfirmDel(true)}><Trash2 className="h-3.5 w-3.5 mr-1.5" />Delete</Button>}
-          {onEdit && status !== "discarded" && <Button variant="outline" onClick={() => onEdit(training)}><Pencil className="h-3.5 w-3.5 mr-1.5" />Edit</Button>}
           <Button variant="outline" className="flex-1" onClick={onClose}>Close</Button>
+          {onEdit && status !== "discarded" && <Button variant="outline" onClick={() => onEdit(training)}><Pencil className="h-3.5 w-3.5 mr-1.5" />Edit</Button>}
+          {onDelete && <Button variant="outline" className="text-rose-600 border-rose-200 hover:bg-rose-50" onClick={() => setConfirmDel(true)}><Trash2 className="h-3.5 w-3.5 mr-1.5" />Delete</Button>}
         </DialogFooter>
       </ModalContent>
       <ConfirmDialog
@@ -1207,7 +1303,7 @@ function ApprovalRequestModal({ training, part, requests, onSubmit, onClose }) {
           </div>
         )}
 
-        {part && <div className="text-[13px] text-muted-foreground px-3.5 py-2 bg-indigo-50 rounded-lg border border-indigo-200">📋 Part {partIdx + 1}: {part.title}</div>}
+        {part && <div className="text-[13px] text-muted-foreground px-3.5 py-2 bg-indigo-50 rounded-lg border border-indigo-200">Part {partIdx + 1}: {part.title}</div>}
 
         {materialLink && (
           <a href={safeUrl(materialLink)} target="_blank" rel="noreferrer" className="block text-[12.5px] font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 no-underline hover:brightness-95">
@@ -1216,7 +1312,7 @@ function ApprovalRequestModal({ training, part, requests, onSubmit, onClose }) {
         )}
 
         <div className="rounded-lg bg-indigo-50 border border-indigo-200 px-3.5 py-2.5 text-[12.5px] text-indigo-700">
-          ℹ️ <strong>Both fields are mandatory</strong> — your manager reviews these before approving.
+          <strong>Both fields are mandatory</strong> — your manager reviews these before approving.
         </div>
 
         <div className="space-y-1.5">
@@ -1257,15 +1353,15 @@ function ApprovalsPanel({ approvals, onApprove, onSendBack, onRefresh, refreshin
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
+      <div className="flex items-start justify-between gap-4 flex-wrap mb-7">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Approvals</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Review completion requests from your reportees</p>
+          <h1 className="text-[23px] sm:text-[25px] font-bold tracking-[-0.025em] leading-tight text-foreground">Approvals</h1>
+          <p className="text-[12.5px] text-muted-foreground mt-1.5">Review completion requests from your reportees</p>
         </div>
         <Button variant="outline" size="sm" onClick={onRefresh}><RefreshCw className={cn("h-4 w-4 mr-1.5", refreshing && "animate-spin")} />Refresh</Button>
       </div>
       {approvals.length === 0 ? (
-        <Card className="border-dashed"><CardContent className="p-14 text-center text-sm text-muted-foreground">🎉 Nothing waiting on you right now.</CardContent></Card>
+        <Card className="border-dashed bg-table-head"><CardContent className="p-14 text-center text-[13px] text-muted-foreground">Nothing waiting on you right now.</CardContent></Card>
       ) : (
         <div className="space-y-3">
           {approvals.map(r => (
@@ -1295,12 +1391,12 @@ function ApprovalsPanel({ approvals, onApprove, onSendBack, onRefresh, refreshin
             <DialogDescription>{isApprove ? `This marks it as complete for ${target?.req.reportee_name} and adds it to the Knowledge Hub. Remarks are optional.` : `Remarks are required so ${target?.req.reportee_name} knows what to fix.`}</DialogDescription>
           </DialogHeader>
           <Textarea value={remarks} onChange={e => setRemarks(e.target.value)} rows={4} placeholder={isApprove ? "Feedback for the reportee (optional)" : "What needs to change?"} />
-          {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
+          {err && <FormError>{err}</FormError>}
           <DialogFooter className="gap-2 sm:gap-2">
             <Button variant="outline" className="flex-1" onClick={() => setTarget(null)}>Cancel</Button>
             {isApprove
               ? <Button className="flex-[2] bg-emerald-600 hover:bg-emerald-700" disabled={busy} onClick={confirm}><Check className="h-3.5 w-3.5 mr-1" />{busy ? "Approving…" : "Approve & mark complete"}</Button>
-              : <Button className="flex-[2] bg-rose-600 hover:bg-rose-700" disabled={!remarks.trim() || busy} onClick={confirm}>{busy ? "Sending…" : "Send Back"}</Button>}
+              : <Button className="flex-[2] bg-destructive hover:bg-rose-700" disabled={!remarks.trim() || busy} onClick={confirm}>{busy ? "Sending…" : "Send Back"}</Button>}
           </DialogFooter>
         </ModalContent>
       </Dialog>
@@ -1513,7 +1609,7 @@ function AssignModal({ reportees, categories, catalog, currentFY, initialCatalog
             Also save this training to the Training Catalog for future use
           </label>
         )}
-        {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
+        {err && <FormError>{err}</FormError>}
 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
@@ -1598,7 +1694,7 @@ function BulkAssignModal({ reportees, catalog, currentFY, initialIds, onSubmit, 
         )}
         <DateFields expectedEnd={expectedEnd} setExpectedEnd={setExpectedEnd} dueDate={dueDate} setDueDate={setDueDate} />
         <ReporteePicker reportees={reportees} memberIds={memberIds} setMemberIds={setMemberIds} onGoToSettings={onGoToSettings} />
-        {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
+        {err && <FormError>{err}</FormError>}
 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
@@ -1632,7 +1728,7 @@ function EditTrainingModal({ training, categories, onSubmit, onClose }) {
         </DialogHeader>
         <TrainingFields form={form} setForm={setForm} categories={categories} showParts={hasParts(training)} partsLocked="Parts can't be changed once assigned — delete and re-assign the training to change its parts." />
         <DateFields expectedEnd={expectedEnd} setExpectedEnd={setExpectedEnd} dueDate={dueDate} setDueDate={setDueDate} />
-        {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
+        {err && <FormError>{err}</FormError>}
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
           <Button className="flex-[2]" disabled={!ok || busy} onClick={submit}>{busy ? "Saving…" : "Save changes"}</Button>
@@ -1661,7 +1757,7 @@ function CatalogItemModal({ item, categories, onSubmit, onClose }) {
           <DialogDescription>Catalog trainings can be assigned to reportees any time, singly or in bulk.</DialogDescription>
         </DialogHeader>
         <TrainingFields form={form} setForm={setForm} categories={categories} linkRequired={false} />
-        {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
+        {err && <FormError>{err}</FormError>}
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
           <Button className="flex-[2]" disabled={!trainingFormValid(form, false) || busy} onClick={submit}>{busy ? "Saving…" : item ? "Save changes" : "Add to catalog"}</Button>
@@ -1926,7 +2022,7 @@ function ImportModal({ categories, catalog, onImport, onClose }) {
             </div>
           </div>
         )}
-        {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
+        {err && <FormError>{err}</FormError>}
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
           <Button className="flex-[2]" disabled={!ready.length || busy} onClick={doImport}>{busy ? "Importing…" : `Import ${ready.length} training${ready.length === 1 ? "" : "s"}`}</Button>
@@ -1954,10 +2050,10 @@ function CatalogPage({ catalog, categories, trainings, canAssign, onSave, onImpo
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
+      <div className="flex items-start justify-between gap-4 flex-wrap mb-7">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Training Catalog</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Keep trainings ready here, then assign them to reportees — one at a time or in bulk.</p>
+          <h1 className="text-[23px] sm:text-[25px] font-bold tracking-[-0.025em] leading-tight text-foreground">Training Catalog</h1>
+          <p className="text-[12.5px] text-muted-foreground mt-1.5">Keep trainings ready here, then assign them to reportees — one at a time or in bulk.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}><Upload className="h-4 w-4 mr-1.5" />Bulk Import</Button>
@@ -1982,7 +2078,7 @@ function CatalogPage({ catalog, categories, trainings, canAssign, onSave, onImpo
           <Checkbox checked={allShown} onCheckedChange={toggleAll} />Select all {q ? "matching" : ""} ({shown.length})
         </label>
       )}
-      {err && <p className="text-sm text-rose-600 mb-3">⚠ {err}</p>}
+      {err && <FormError className="mb-3">{err}</FormError>}
 
       <Card className="overflow-hidden">
         {shown.length === 0 ? (
@@ -2053,13 +2149,13 @@ function Reminders({ reportees, trainings, settings, onSaveSettings, onMarkRemin
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="text-2xl font-bold tracking-tight">Reminders</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Configure reminder frequency & send nudges</p>
+      <div className="mb-7">
+        <h1 className="text-[23px] sm:text-[25px] font-bold tracking-[-0.025em] leading-tight text-foreground">Reminders</h1>
+        <p className="text-[12.5px] text-muted-foreground mt-1.5">Configure reminder frequency & send nudges</p>
       </div>
 
       <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 mb-5 text-[13px] text-amber-800 leading-relaxed">
-        ⚠️ <strong>How this works:</strong> This app can't send fully-automatic background emails. Each time you open this page, it shows who is due for a reminder. One click opens a pre-filled email for all of them.
+        <strong>How this works:</strong> This app can't send fully-automatic background emails. Each time you open this page, it shows who is due for a reminder. One click opens a pre-filled email for all of them.
       </div>
 
       <Card className="mb-5">
@@ -2069,14 +2165,14 @@ function Reminders({ reportees, trainings, settings, onSaveSettings, onMarkRemin
             <div className="space-y-1.5"><Label>Pending — remind every (days)</Label><Input type="number" min={1} value={pd} onChange={e => setPd(e.target.value)} /><p className="text-xs text-muted-foreground">While training is not yet overdue.</p></div>
             <div className="space-y-1.5"><Label>Overdue — remind every (days)</Label><Input type="number" min={1} value={od} onChange={e => setOd(e.target.value)} /><p className="text-xs text-muted-foreground">More frequent once due date is crossed.</p></div>
           </div>
-          <Button onClick={saveS} className={cn(savedS && "bg-emerald-600 hover:bg-emerald-600")}>{savedS ? "✅ Saved!" : "Save Settings"}</Button>
+          <Button onClick={saveS} className={cn(savedS && "bg-emerald-600 hover:bg-emerald-600")}>{savedS ? "Saved!" : "Save Settings"}</Button>
         </CardContent>
       </Card>
 
       <Card className={cn("mb-4", dueFor.length ? "border-rose-200 bg-rose-50/50" : "border-emerald-200 bg-emerald-50/50")}>
         <CardContent className="p-5">
           <div className={cn("flex items-center justify-between gap-2.5 flex-wrap", dueFor.length && "mb-3.5")}>
-            <div className={cn("text-sm font-bold", dueFor.length ? "text-rose-700" : "text-emerald-700")}>{dueFor.length ? `🔔 ${dueFor.length} reminder(s) due now` : "🎉 No reminders due right now"}</div>
+            <div className={cn("text-sm font-bold", dueFor.length ? "text-rose-700" : "text-emerald-700")}>{dueFor.length ? `${dueFor.length} reminder(s) due now` : "No reminders due right now"}</div>
             {dueFor.length > 0 && (
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={() => copy(dueFor)}><Copy className="h-3.5 w-3.5 mr-1.5" />{copied ? "Copied!" : "Copy"}</Button>
@@ -2098,7 +2194,7 @@ function Reminders({ reportees, trainings, settings, onSaveSettings, onMarkRemin
       <Card>
         <CardContent className="p-5">
           <SectionLabel>All Pending Trainings</SectionLabel>
-          {allPending.length === 0 ? <p className="text-center py-6 text-muted-foreground text-[13px]">Nothing pending — great job team! 🎉</p>
+          {allPending.length === 0 ? <p className="text-center py-6 text-muted-foreground text-[13px]">Nothing pending — great job team!</p>
             : allPending.map(t => { const u = reportees.find(x => x.id === t.assigned_to), ov = isOverdue(t.due_date), thr = ov ? settings.overdueReminderDays : settings.pendingReminderDays, ni = Math.max(0, thr - daysSince(t.last_reminder_sent || (ov ? t.due_date : t.assigned_date))); return (
               <div key={t.id} className="flex items-center gap-2.5 text-[13px] py-2.5 border-b last:border-0">
                 <UAvatar name={u?.full_name || "?"} color={u?.color} className="h-6 w-6" />
@@ -2177,9 +2273,9 @@ function Settings({ reportees, trainings, currentFY, onAddReportee, onToggleActi
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="text-2xl font-bold tracking-tight">Team & Settings</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Manage reportees and the financial year</p>
+      <div className="mb-7">
+        <h1 className="text-[23px] sm:text-[25px] font-bold tracking-[-0.025em] leading-tight text-foreground">Team & Settings</h1>
+        <p className="text-[12.5px] text-muted-foreground mt-1.5">Manage reportees and the financial year</p>
       </div>
 
       <InviteResult result={created} onDismiss={() => setCreated(null)} />
@@ -2205,7 +2301,7 @@ function Settings({ reportees, trainings, currentFY, onAddReportee, onToggleActi
               <div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => setAddForm(false)}>Cancel</Button><Button size="sm" disabled={!newU.full_name.trim() || !newU.email.trim() || creating} onClick={addM}>{creating ? "Creating…" : "Add & send invite"}</Button></div>
             </div>
           )}
-          {err && <p className="text-sm text-rose-600 mb-2">⚠ {err}</p>}
+          {err && <FormError className="mb-2">{err}</FormError>}
           <div className="space-y-3">
             {reportees.map(u => (
               <div key={u.id} className="flex items-center gap-3 flex-wrap">
@@ -2227,7 +2323,7 @@ function Settings({ reportees, trainings, currentFY, onAddReportee, onToggleActi
           <SectionLabel>Year-End Tools</SectionLabel>
           <div className="text-[13px] text-muted-foreground mb-4 flex items-center gap-2 flex-wrap">Current FY: <FYBadge fy={currentFY} /> — decide what to do with pending trainings before closing the year.</div>
           {yfPending.length === 0 ? (
-            <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-4 text-[13px] text-emerald-700 mb-3.5">🎉 No pending trainings in FY {currentFY}.</div>
+            <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-4 text-[13px] text-emerald-700 mb-3.5">No pending trainings in FY {currentFY}.</div>
           ) : (
             <div className="mb-3.5">{yfPending.map(t => { const u = reportees.find(x => x.id === t.assigned_to), { done, total } = getUnits(t); return (
               <div key={t.id} className="flex items-center gap-2.5 py-2.5 border-b last:border-0 text-[13px]">
@@ -2237,7 +2333,7 @@ function Settings({ reportees, trainings, currentFY, onAddReportee, onToggleActi
                   <SelectTrigger className="w-[220px] h-9"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="carry">↪ Carry to FY {nextFY(currentFY)}</SelectItem>
-                    <SelectItem value="discard">🗑 Discard</SelectItem>
+                    <SelectItem value="discard">Discard</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -2301,7 +2397,7 @@ function AdminOverview({ people, trainings, requests, onDetail, onExport, onRefr
     { label: "Completed", value: all.completed, note: `${all.pct}% of units`, Icon: Check },
     { label: "In progress", value: all.inProgress + all.sentBack, note: `${all.notStarted} not started`, Icon: CircleDot },
     { label: "Awaiting approval", value: fyReqs.filter(r => r.status === "pending").length, note: "with managers", Icon: Clock },
-    { label: "Overdue", value: all.overdue, note: "past due date", Icon: AlertCircle },
+    { label: "Overdue", value: all.overdue, note: "past due date", Icon: AlertCircle, tone: all.overdue ? "alert" : undefined },
   ];
 
   const mgrRows = managers.filter(m => mgrF === "all" || m.id === mgrF).map(m => {
@@ -2318,16 +2414,16 @@ function AdminOverview({ people, trainings, requests, onDetail, onExport, onRefr
     };
   });
 
-  const Th = ({ children, left }) => <th className={cn("font-medium px-3 py-3 text-xs uppercase tracking-wide text-muted-foreground whitespace-nowrap", left ? "text-left" : "text-center")}>{children}</th>;
+  const Th = ({ children, left }) => <th className={cn("px-3 h-10 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-[#858d87] whitespace-nowrap", left ? "text-left" : "text-center")}>{children}</th>;
   const Td = ({ children, className }) => <td className={cn("px-3 py-3 text-center", className)}>{children}</td>;
   const num = (v, cls) => v ? <span className={cls}>{v}</span> : <span className="text-muted-foreground/40">0</span>;
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-4 flex-wrap mb-6">
+      <div className="flex items-start justify-between gap-4 flex-wrap mb-7">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Training Overview</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Organisation-wide progress and approvals (view only)</p>
+          <h1 className="text-[23px] sm:text-[25px] font-bold tracking-[-0.025em] leading-tight text-foreground">Training Overview</h1>
+          <p className="text-[12.5px] text-muted-foreground mt-1.5">Organisation-wide progress and approvals (view only)</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           <Select value={mgrF} onValueChange={setMgrF}>
@@ -2338,7 +2434,7 @@ function AdminOverview({ people, trainings, requests, onDetail, onExport, onRefr
             </SelectContent>
           </Select>
           <Select value={fy} onValueChange={setFy}>
-            <SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-[136px]"><SelectValue /></SelectTrigger>
             <SelectContent>{fyList.map(f => <SelectItem key={f} value={f}>FY {f}</SelectItem>)}</SelectContent>
           </Select>
           <Button variant="outline" size="sm" onClick={onRefresh}><RefreshCw className={cn("h-4 w-4 mr-1.5", refreshing && "animate-spin")} />Refresh</Button>
@@ -2347,26 +2443,19 @@ function AdminOverview({ people, trainings, requests, onDetail, onExport, onRefr
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
-        {stats.map(s => { const Icon = s.Icon; return (
-          <Card key={s.label}><CardContent className="p-5">
-            <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-indigo-50 text-indigo-600 mb-3"><Icon className="h-[18px] w-[18px]" /></div>
-            <div className="text-3xl font-bold tracking-tight leading-none">{s.value}</div>
-            <div className="text-[13px] font-semibold mt-1.5">{s.label}</div>
-            <div className="text-[11px] text-muted-foreground mt-0.5">{s.note}</div>
-          </CardContent></Card>
-        ); })}
+        {stats.map(s => <StatCard key={s.label} label={s.label} value={s.value} note={s.note} Icon={s.Icon} tone={s.tone} />)}
       </div>
 
       <SectionLabel>Managers — FY {fy}</SectionLabel>
       <Card className="overflow-hidden mb-8">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead><tr className="bg-muted/50 border-b">
+            <thead><tr className="bg-table-head border-b">
               <Th left>Manager</Th><Th>Team</Th><Th>Assigned</Th><Th>Completed</Th><Th>Approvals given</Th><Th>Sent back</Th><Th>Awaiting approval</Th><Th>Overdue</Th><Th>Completion</Th>
             </tr></thead>
             <tbody>
               {mgrRows.map(({ m, team, c, approved, sentBack, pending }) => (
-                <tr key={m.id} className="border-b last:border-0">
+                <tr key={m.id} className="border-b last:border-0 hover:bg-[#f7f9f7] transition-colors">
                   <td className="px-3 py-3"><div className="flex items-center gap-2.5"><UAvatar name={m.full_name} color={m.color} className="h-7 w-7" /><span className="font-medium">{m.full_name}</span></div></td>
                   <Td>{team}</Td><Td>{c.total}</Td><Td>{num(c.completed, "text-emerald-600 font-semibold")}</Td>
                   <Td>{num(approved, "font-semibold")}</Td><Td>{num(sentBack, "text-orange-600")}</Td>
@@ -2384,12 +2473,12 @@ function AdminOverview({ people, trainings, requests, onDetail, onExport, onRefr
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead><tr className="bg-muted/50 border-b">
+            <thead><tr className="bg-table-head border-b">
               <Th left>Employee</Th><Th left>Manager</Th><Th>Assigned</Th><Th>Not started</Th><Th>In progress</Th><Th>Awaiting approval</Th><Th>Completed</Th><Th>Overdue</Th><Th>Progress</Th><Th></Th>
             </tr></thead>
             <tbody>
               {reportees.map(u => { const c = statusCounts(fyT.filter(t => t.assigned_to === u.id)); return (
-                <tr key={u.id} className={cn("border-b last:border-0", !u.is_active && "opacity-60")}>
+                <tr key={u.id} className={cn("border-b last:border-0 hover:bg-[#f7f9f7] transition-colors", !u.is_active && "opacity-60")}>
                   <td className="px-3 py-3"><div className="flex items-center gap-2.5"><UAvatar name={u.full_name} color={u.color} className="h-7 w-7" /><div className="min-w-0"><div className="font-medium truncate">{u.full_name}{!u.is_active && <span className="text-muted-foreground font-normal"> (inactive)</span>}</div><div className="text-[11px] text-muted-foreground truncate">{u.email}</div></div></div></td>
                   <td className="px-3 py-3 text-[13px] text-muted-foreground whitespace-nowrap">{nameOf(u.manager_id)}</td>
                   <Td>{c.total}</Td><Td>{num(c.notStarted)}</Td><Td>{num(c.inProgress + c.sentBack, "text-indigo-700")}</Td>
@@ -2455,7 +2544,7 @@ function UserFormModal({ user, managers, onSubmit, onClose }) {
             {f.role === "reporting_manager" && <p className="text-xs text-muted-foreground">Set this if the manager also reports to someone — their senior can then assign and approve their trainings.</p>}
           </div>
         )}
-        {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
+        {err && <FormError>{err}</FormError>}
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
           <Button className="flex-[2]" disabled={!ok || busy} onClick={submit}>{busy ? "Saving…" : user ? "Save changes" : "Add & send invite"}</Button>
@@ -2484,10 +2573,10 @@ function UsersAdmin({ me, people, onCreate, onUpdate, onToggleActive, onSendLink
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
+      <div className="flex items-start justify-between gap-4 flex-wrap mb-7">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Users</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Add managers and reportees, set reporting lines, and control access.</p>
+          <h1 className="text-[23px] sm:text-[25px] font-bold tracking-[-0.025em] leading-tight text-foreground">Users</h1>
+          <p className="text-[12.5px] text-muted-foreground mt-1.5">Add managers and reportees, set reporting lines, and control access.</p>
         </div>
         <Button size="sm" onClick={() => setEditing("new")}><Plus className="h-4 w-4 mr-1.5" />Add User</Button>
       </div>
@@ -2505,12 +2594,12 @@ function UsersAdmin({ me, people, onCreate, onUpdate, onToggleActive, onSendLink
           </SelectContent>
         </Select>
       </div>
-      {err && <p className="text-sm text-rose-600 mb-3">⚠ {err}</p>}
+      {err && <FormError className="mb-3">{err}</FormError>}
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-muted/50 border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <tr className="bg-table-head border-b text-left text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
                 <th className="font-medium px-4 py-3">User</th>
                 <th className="font-medium px-3 py-3">Role</th>
                 <th className="font-medium px-3 py-3">Reporting Manager</th>
@@ -2520,7 +2609,7 @@ function UsersAdmin({ me, people, onCreate, onUpdate, onToggleActive, onSendLink
             </thead>
             <tbody>
               {shown.map(p => (
-                <tr key={p.id} className="border-b last:border-0">
+                <tr key={p.id} className="border-b last:border-0 hover:bg-[#f7f9f7] transition-colors">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2.5">
                       <UAvatar name={p.full_name} color={p.color} className="h-7 w-7" />
@@ -2614,14 +2703,14 @@ function ExportModal({ reportees, trainings, requests, fyList, currentFY, onClos
     <Dialog open onOpenChange={o => !o && onClose()}>
       <ModalContent size="md">
         <DialogHeader>
-          <DialogTitle>📊 Export Management Report</DialogTitle>
+          <DialogTitle>Export Management Report</DialogTitle>
           <DialogDescription>Download a multi-sheet Excel report for management review.</DialogDescription>
         </DialogHeader>
         <div className="space-y-1.5">
           <Label>Select Financial Years to include <span className="text-rose-500">*</span></Label>
           <div className="space-y-2">
             {fyList.map(fy => (
-              <label key={fy} className={cn("flex items-center gap-2.5 cursor-pointer px-3.5 py-2.5 rounded-lg border transition", selFYs.includes(fy) ? "bg-indigo-50 border-indigo-200" : "bg-muted/50 border-border")}>
+              <label key={fy} className={cn("flex items-center gap-2.5 cursor-pointer px-3.5 py-2.5 rounded-lg border transition", selFYs.includes(fy) ? "bg-indigo-50 border-indigo-200" : "bg-table-head border-border")}>
                 <Checkbox checked={selFYs.includes(fy)} onCheckedChange={() => tog(fy)} />
                 <span className={cn("text-[13px] font-semibold", selFYs.includes(fy) ? "text-indigo-700" : "")}>FY {fy}</span>
                 <span className="text-xs text-muted-foreground ml-auto">{trainings.filter(t => t.fy === fy).length} trainings</span>
@@ -2630,7 +2719,7 @@ function ExportModal({ reportees, trainings, requests, fyList, currentFY, onClos
           </div>
         </div>
         <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4 text-[13px] text-emerald-700">
-          📄 The Excel file will have 3 sheets:
+          The Excel file will have 3 sheets:
           <div className="mt-1.5 space-y-0.5 text-xs">
             <div>• <strong>Team Summary</strong> — member-wise FY completion + achievements</div>
             <div>• <strong>Training Details</strong> — all trainings with status, dates & parts</div>
@@ -2877,27 +2966,26 @@ svg.lucide{display:block;flex-shrink:0}
   const toggleUserActive = async (u) => { await api.setUserActive(u.id, !u.is_active); await loadData(); };
   const sendSetupLink = async (u) => { const res = await api.sendSetupLink(u.id); await loadData(); return res; };
 
-  if (authLoading) return <div className="flex items-center justify-center h-screen bg-background text-muted-foreground text-sm">Loading…</div>;
+  if (authLoading) return <LoadingScreen />;
   if (!session) return <LoginScreen onSignInAs={r => { setLoginRole(r); if (r) setLoginError(""); }} roleError={loginError} />;
-  if (!profile) return <div className="flex items-center justify-center h-screen bg-background text-muted-foreground text-sm">Loading your profile…</div>;
+  if (!profile) return <LoadingScreen label="Loading your profile…" />;
   if (recovery || profile.must_change_password) return <ForcePasswordChange recovery={recovery && !profile.must_change_password} onDone={finishForcedPasswordChange} onCancel={logout} />;
-  if (dataLoading) return <div className="flex items-center justify-center h-screen bg-background text-muted-foreground text-sm">Loading…</div>;
+  if (dataLoading) return <LoadingScreen />;
 
   const isAdmin = profile.role === "admin";
   if (isAdmin) {
     return (
-      <div className="flex h-screen bg-background text-foreground overflow-hidden font-sans">
-        <Sidebar profile={profile} tab={tab} setTab={setTab} onLogout={logout} myDone={0} myTotal={0} trainings={[]} currentFY={currentFY} pendingApprovalsCount={0} />
-        <main className="flex-1 overflow-auto p-8">
+      <>
+        <AppShell renderSidebar={close => <Sidebar profile={profile} tab={tab} setTab={t => { setTab(t); close(); }} onLogout={logout} myDone={0} myTotal={0} trainings={[]} currentFY={currentFY} pendingApprovalsCount={0} />}>
           {tab === "overview" && <AdminOverview people={people} trainings={trainings} requests={requests} onRefresh={refresh} refreshing={refreshing}
             onDetail={(t, p) => setDetailT({ training: t, part: p })} onExport={(reps, fy) => setExportOpen({ reportees: reps, fy })} />}
           {tab === "users" && <UsersAdmin me={profile} people={people} onCreate={createUser} onUpdate={updateUser} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} />}
           {tab === "catalog" && <CatalogPage catalog={catalog} categories={categories} trainings={trainings} canAssign={false} onSave={saveCatalogItem} onImport={importCatalog} onDelete={deleteCatalogItems} />}
-        </main>
+        </AppShell>
         {detailTarget && <DetailModal training={detailTarget.training} part={detailTarget.part} reportees={people} requests={requests} onClose={() => setDetailT(null)} />}
         {exportOpen && <ExportModal reportees={exportOpen.reportees} trainings={trainings.filter(t => exportOpen.reportees.some(r => r.id === t.assigned_to))} requests={requests}
           fyList={[...new Set([getFY(), ...trainings.map(t => t.fy)])].filter(Boolean).sort().reverse()} currentFY={exportOpen.fy} onClose={() => setExportOpen(false)} />}
-      </div>
+      </>
     );
   }
 
@@ -2915,9 +3003,8 @@ svg.lucide{display:block;flex-shrink:0}
   const allFYs = [...new Set([...(isManager ? [currentFY] : []), ...trainings.map(t => t.fy)])].filter(Boolean).sort().reverse();
 
   return (
-    <div className="flex h-screen bg-background text-foreground overflow-hidden font-sans">
-      <Sidebar profile={profile} tab={tab} setTab={setTab} onLogout={logout} myDone={myDone} myTotal={myTotal} trainings={teamT} currentFY={currentFY} pendingApprovalsCount={approvals.length} showMyTrainings={isManager && hasOwnTrainings} />
-      <main className="flex-1 overflow-auto p-8">
+    <>
+      <AppShell renderSidebar={close => <Sidebar profile={profile} tab={tab} setTab={t => { setTab(t); close(); }} onLogout={logout} myDone={myDone} myTotal={myTotal} trainings={teamT} currentFY={currentFY} pendingApprovalsCount={approvals.length} showMyTrainings={isManager && hasOwnTrainings} />}>
         {tab === "dashboard" && isManager && <Dashboard reportees={reportees} trainings={teamT} onAdd={() => setAdd({})} onBulk={() => setBulk({ ids: [] })} onRefresh={refresh} refreshing={refreshing} fyList={allFYs} fyFilter={fyFilterD} setFyFilter={setFyFilterD} onExport={() => setExportOpen(true)} onDetail={(t, p) => setDetailT({ training: t, part: p })} />}
         {tab === "approvals" && isManager && <ApprovalsPanel approvals={approvals} onApprove={approveOne} onSendBack={sendBackOne} onRefresh={refresh} refreshing={refreshing} />}
         {tab === "catalog" && isManager && <CatalogPage catalog={catalog} categories={categories} trainings={teamT} canAssign onSave={saveCatalogItem} onImport={importCatalog} onDelete={deleteCatalogItems} onAssign={id => setAdd({ catalogId: id })} onBulkAssign={ids => setBulk({ ids })} />}
@@ -2925,7 +3012,7 @@ svg.lucide{display:block;flex-shrink:0}
         {tab === "knowledge-hub" && <KnowledgeHub trainings={trainings} reportees={people} requests={requests} onDetail={(t, p) => setDetailT({ training: t, part: p })} />}
         {tab === "reminders" && isManager && <Reminders reportees={reportees} trainings={teamT} settings={managerSettings} onSaveSettings={saveReminderSettings} onMarkReminded={markReminded} />}
         {tab === "settings" && isManager && <Settings reportees={reportees} trainings={teamT} currentFY={currentFY} onAddReportee={createUser} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} onFinalizeYear={finalizeYear} onRefreshReportees={refresh} />}
-      </main>
+      </AppShell>
       {detailTarget && <DetailModal training={detailTarget.training} part={detailTarget.part} reportees={people} requests={requests} onClose={() => setDetailT(null)}
         onEdit={isManager && detailTarget.training.assigned_to !== profile.id ? t => setEditT(t) : null}
         onDelete={isManager && detailTarget.training.assigned_to !== profile.id ? deleteTraining : null} />}
@@ -2934,6 +3021,6 @@ svg.lucide{display:block;flex-shrink:0}
       {addModal && <AssignModal reportees={reportees} categories={categories} catalog={catalog} currentFY={currentFY} initialCatalogId={addModal.catalogId} onSubmit={addTraining} onClose={() => setAdd(false)} onGoToSettings={() => { setAdd(false); setTab("settings"); }} />}
       {bulkModal && <BulkAssignModal reportees={reportees} catalog={catalog} currentFY={currentFY} initialIds={bulkModal.ids} onSubmit={bulkAssign} onClose={() => setBulk(null)} onGoToSettings={() => { setBulk(null); setTab("settings"); }} />}
       {exportOpen && <ExportModal reportees={reportees} trainings={teamT} requests={requests} fyList={allFYs} currentFY={currentFY} onClose={() => setExportOpen(false)} />}
-    </div>
+    </>
   );
 }
