@@ -366,7 +366,7 @@ function ForcePasswordChange({ onDone, onCancel, recovery }) {
 }
 
 // ── SIDEBAR ───────────────────────────────────────────────────────────────────
-function Sidebar({ profile, tab, setTab, onLogout, myDone, myTotal, trainings, currentFY, pendingApprovalsCount }) {
+function Sidebar({ profile, tab, setTab, onLogout, myDone, myTotal, trainings, currentFY, pendingApprovalsCount, showMyTrainings }) {
   const isManager = profile.role === "reporting_manager";
   const isAdmin = profile.role === "admin";
   const overdue = trainings.filter(t => isOpenStatus(getEffStatus(t)) && isOverdue(t.due_date)).length;
@@ -377,6 +377,8 @@ function Sidebar({ profile, tab, setTab, onLogout, myDone, myTotal, trainings, c
   ] : isManager ? [
     { id: "dashboard", icon: LayoutDashboard, label: "Dashboard" },
     { id: "approvals", icon: Library, label: "Approvals", badge: pendingApprovalsCount || null },
+    // A manager who reports to someone also has their own trainings.
+    ...(showMyTrainings ? [{ id: "my-trainings", icon: BookOpen, label: "My Trainings", badge: `${myDone}/${myTotal}` }] : []),
     { id: "catalog", icon: FolderOpen, label: "Training Catalog" },
     { id: "knowledge-hub", icon: Lightbulb, label: "Knowledge Hub" },
     { id: "reminders", icon: Bell, label: "Reminders", badge: overdue || null },
@@ -1939,12 +1941,16 @@ function CatalogPage({ catalog, categories, trainings, canAssign, onSave, onImpo
   const [editing, setEditing] = useState(null); // null | "new" | item
   const [importOpen, setImportOpen] = useState(false);
   const [selected, setSelected] = useState([]);
-  const [confirmDel, setConfirmDel] = useState(null);
+  const [confirmDel, setConfirmDel] = useState(null); // catalog items pending delete
   const [err, setErr] = useState("");
   const usage = id => trainings.filter(t => t.catalog_id === id && t.status !== "discarded" && t.status !== "approved").length;
   const q = search.trim().toLowerCase();
   const shown = catalog.filter(c => !q || c.name.toLowerCase().includes(q) || `${c.training_categories?.group_name} ${c.training_categories?.name}`.toLowerCase().includes(q));
   const toggle = id => setSelected(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  const allShown = shown.length > 0 && shown.every(c => selected.includes(c.id));
+  const toggleAll = () => setSelected(allShown ? selected.filter(id => !shown.some(c => c.id === id)) : [...new Set([...selected, ...shown.map(c => c.id)])]);
+  const delItems = confirmDel || [];
+  const delActive = delItems.reduce((s, c) => s + usage(c.id), 0);
 
   return (
     <div>
@@ -1964,8 +1970,18 @@ function CatalogPage({ catalog, categories, trainings, canAssign, onSave, onImpo
           <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or category..." className="pl-9" />
         </div>
-        {canAssign && selected.length > 0 && <Button onClick={() => onBulkAssign(selected)}><Users className="h-4 w-4 mr-1.5" />Assign {selected.length} selected</Button>}
+        {selected.length > 0 && (
+          <>
+            {canAssign && <Button onClick={() => onBulkAssign(selected)}><Users className="h-4 w-4 mr-1.5" />Assign {selected.length} selected</Button>}
+            <Button variant="outline" className="text-rose-600 border-rose-200 hover:bg-rose-50" onClick={() => setConfirmDel(catalog.filter(c => selected.includes(c.id)))}><Trash2 className="h-4 w-4 mr-1.5" />Delete {selected.length} selected</Button>
+          </>
+        )}
       </div>
+      {shown.length > 0 && (
+        <label className="flex items-center gap-2 text-[12.5px] text-muted-foreground mb-2 px-1 cursor-pointer w-fit">
+          <Checkbox checked={allShown} onCheckedChange={toggleAll} />Select all {q ? "matching" : ""} ({shown.length})
+        </label>
+      )}
       {err && <p className="text-sm text-rose-600 mb-3">⚠ {err}</p>}
 
       <Card className="overflow-hidden">
@@ -1975,7 +1991,7 @@ function CatalogPage({ catalog, categories, trainings, canAssign, onSave, onImpo
           const used = usage(c.id);
           return (
             <div key={c.id} className={cn("flex items-center gap-3 px-5 py-3.5", i < shown.length - 1 && "border-b")}>
-              {canAssign && <Checkbox checked={selected.includes(c.id)} onCheckedChange={() => toggle(c.id)} />}
+              <Checkbox checked={selected.includes(c.id)} onCheckedChange={() => toggle(c.id)} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-semibold text-sm">{c.name}</span>
@@ -1993,22 +2009,26 @@ function CatalogPage({ catalog, categories, trainings, canAssign, onSave, onImpo
               </div>
               {canAssign && <Button size="sm" variant="outline" onClick={() => onAssign(c.id)}>Assign</Button>}
               <Button size="icon" variant="ghost" className="text-muted-foreground" onClick={() => setEditing(c)}><Pencil className="h-4 w-4" /></Button>
-              <Button size="icon" variant="ghost" className="text-muted-foreground hover:text-rose-600" disabled={used > 0}
-                title={used ? "Currently assigned to reportees — can't delete" : "Delete from catalog"} onClick={() => setConfirmDel(c)}><Trash2 className="h-4 w-4" /></Button>
+              <Button size="icon" variant="ghost" className="text-muted-foreground hover:text-rose-600" title="Delete from catalog" onClick={() => setConfirmDel([c])}><Trash2 className="h-4 w-4" /></Button>
             </div>
           );
         })}
       </Card>
-      <p className="text-xs text-muted-foreground mt-2">🔒 Trainings someone is still working on can't be deleted from the catalog.</p>
+      <p className="text-xs text-muted-foreground mt-2">Deleting from the catalog doesn't remove trainings already assigned to people — remove those from the training's detail view.</p>
 
       {editing && <CatalogItemModal item={editing === "new" ? null : editing} categories={categories} onClose={() => setEditing(null)} onSubmit={async item => { await onSave(item); setEditing(null); }} />}
       {importOpen && <ImportModal categories={categories} catalog={catalog} onClose={() => setImportOpen(false)} onImport={async rows => { await onImport(rows); setImportOpen(false); }} />}
       <ConfirmDialog
-        open={!!confirmDel} danger
-        title={`Delete "${confirmDel?.name}" from the catalog?`}
-        body="Trainings already completed from it are not affected."
-        confirmLabel="Delete"
-        onConfirm={async () => { const c = confirmDel; setConfirmDel(null); setErr(""); try { await onDelete(c.id); } catch (e) { setErr(e.message); } }}
+        open={delItems.length > 0} danger
+        title={delItems.length === 1 ? `Delete "${delItems[0].name}" from the catalog?` : `Delete ${delItems.length} trainings from the catalog?`}
+        body={delActive
+          ? `${delActive} active assignment(s) came from ${delItems.length === 1 ? "this training" : "these trainings"}. They stay with the reportees — only the catalog entry is removed.`
+          : "People who already have these trainings keep them — only the catalog entry is removed."}
+        confirmLabel={delItems.length === 1 ? "Delete" : `Delete ${delItems.length}`}
+        onConfirm={async () => {
+          const ids = delItems.map(c => c.id); setConfirmDel(null); setErr("");
+          try { await onDelete(ids); setSelected(p => p.filter(id => !ids.includes(id))); } catch (e) { setErr(e.message); }
+        }}
         onCancel={() => setConfirmDel(null)}
       />
     </div>
@@ -2265,7 +2285,8 @@ function AdminOverview({ people, trainings, requests, onDetail, onExport, onRefr
   const [member, setMember] = useState(null);
   const fyList = [...new Set([getFY(), ...trainings.map(t => t.fy)])].filter(Boolean).sort().reverse();
   const managers = people.filter(p => p.role === "reporting_manager");
-  const reportees = people.filter(p => p.role === "reportee" && (mgrF === "all" || p.manager_id === mgrF));
+  // Everyone who reports to someone — includes managers with their own senior.
+  const reportees = people.filter(p => p.role !== "admin" && (p.role === "reportee" || p.manager_id) && (mgrF === "all" || p.manager_id === mgrF));
   const repIds = new Set(reportees.map(r => r.id));
   const fyT = trainings.filter(t => t.fy === fy && repIds.has(t.assigned_to));
   const fyIds = new Set(fyT.map(t => t.id));
@@ -2431,6 +2452,7 @@ function UserFormModal({ user, managers, onSubmit, onClose }) {
               </SelectContent>
             </Select>
             {mgrOptions.length === 0 && <p className="text-xs text-amber-700">No managers yet — add a Reporting Manager first.</p>}
+            {f.role === "reporting_manager" && <p className="text-xs text-muted-foreground">Set this if the manager also reports to someone — their senior can then assign and approve their trainings.</p>}
           </div>
         )}
         {err && <p className="text-sm text-rose-600">⚠ {err}</p>}
@@ -2724,12 +2746,14 @@ svg.lucide{display:block;flex-shrink:0}
         setLoginError("Your account has been deactivated. Please contact your manager or HR.");
         setLoginRole(null); api.signOut(); return;
       }
-      if (loginRole && p.role !== loginRole) {
+      // A manager who reports to someone may also sign in as a Reportee (lands on their own trainings).
+      const asReportee = loginRole === "reportee" && p.role === "reporting_manager" && !!p.manager_id;
+      if (loginRole && p.role !== loginRole && !asReportee) {
         setLoginError(`This account is registered as ${ROLE_LABELS[p.role]}, not ${ROLE_LABELS[loginRole]}. Please pick the right role.`);
         setLoginRole(null); api.signOut(); return;
       }
       setLoginRole(null); setLoginError("");
-      setTab(p.role === "admin" ? "overview" : p.role === "reporting_manager" ? "dashboard" : "my-trainings");
+      setTab(p.role === "admin" ? "overview" : p.role === "reporting_manager" && !asReportee ? "dashboard" : "my-trainings");
       setProfile(p);
     }).catch(() => setProfile(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2829,7 +2853,7 @@ svg.lucide{display:block;flex-shrink:0}
 
   const saveCatalogItem = async (item) => { await api.saveCatalogItem(item); setCatalog(await api.listCatalog()); };
   const importCatalog = async (rows) => { await api.insertCatalogItems(rows); setCatalog(await api.listCatalog()); };
-  const deleteCatalogItem = async (id) => { await api.deleteCatalogItem(id); setCatalog(await api.listCatalog()); };
+  const deleteCatalogItems = async (ids) => { await api.deleteCatalogItems(ids); setCatalog(await api.listCatalog()); };
 
   const approveOne = async (requestId, remarks) => { await api.approveRequest(requestId, remarks); await loadData(); };
   const sendBackOne = async (requestId, remarks) => { await api.sendBackRequest(requestId, remarks); await loadData(); };
@@ -2868,7 +2892,7 @@ svg.lucide{display:block;flex-shrink:0}
           {tab === "overview" && <AdminOverview people={people} trainings={trainings} requests={requests} onRefresh={refresh} refreshing={refreshing}
             onDetail={(t, p) => setDetailT({ training: t, part: p })} onExport={(reps, fy) => setExportOpen({ reportees: reps, fy })} />}
           {tab === "users" && <UsersAdmin me={profile} people={people} onCreate={createUser} onUpdate={updateUser} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} />}
-          {tab === "catalog" && <CatalogPage catalog={catalog} categories={categories} trainings={trainings} canAssign={false} onSave={saveCatalogItem} onImport={importCatalog} onDelete={deleteCatalogItem} />}
+          {tab === "catalog" && <CatalogPage catalog={catalog} categories={categories} trainings={trainings} canAssign={false} onSave={saveCatalogItem} onImport={importCatalog} onDelete={deleteCatalogItems} />}
         </main>
         {detailTarget && <DetailModal training={detailTarget.training} part={detailTarget.part} reportees={people} requests={requests} onClose={() => setDetailT(null)} />}
         {exportOpen && <ExportModal reportees={exportOpen.reportees} trainings={trainings.filter(t => exportOpen.reportees.some(r => r.id === t.assigned_to))} requests={requests}
@@ -2878,7 +2902,13 @@ svg.lucide{display:block;flex-shrink:0}
   }
 
   const isManager = profile.role === "reporting_manager";
-  const myT = !isManager ? trainings : [];
+  // Only the user's own assignments — `trainings` also holds their team's and
+  // (via Knowledge Hub visibility) teammates' approved trainings.
+  const myT = trainings.filter(t => t.assigned_to === profile.id);
+  const hasOwnTrainings = !isManager || !!profile.manager_id || myT.length > 0;
+  // A manager's team view: direct reportees' trainings only.
+  const teamIds = new Set(reportees.map(r => r.id));
+  const teamT = isManager ? trainings.filter(t => teamIds.has(t.assigned_to)) : [];
   const myAFY = myT.filter(t => t.fy === fyFilterM && t.status !== "discarded");
   const myDone = myAFY.reduce((s, t) => s + getUnits(t).done, 0);
   const myTotal = myAFY.reduce((s, t) => s + getUnits(t).total, 0);
@@ -2886,23 +2916,24 @@ svg.lucide{display:block;flex-shrink:0}
 
   return (
     <div className="flex h-screen bg-background text-foreground overflow-hidden font-sans">
-      <Sidebar profile={profile} tab={tab} setTab={setTab} onLogout={logout} myDone={myDone} myTotal={myTotal} trainings={trainings} currentFY={currentFY} pendingApprovalsCount={approvals.length} />
+      <Sidebar profile={profile} tab={tab} setTab={setTab} onLogout={logout} myDone={myDone} myTotal={myTotal} trainings={teamT} currentFY={currentFY} pendingApprovalsCount={approvals.length} showMyTrainings={isManager && hasOwnTrainings} />
       <main className="flex-1 overflow-auto p-8">
-        {tab === "dashboard" && isManager && <Dashboard reportees={reportees} trainings={trainings} onAdd={() => setAdd({})} onBulk={() => setBulk({ ids: [] })} onRefresh={refresh} refreshing={refreshing} fyList={allFYs} fyFilter={fyFilterD} setFyFilter={setFyFilterD} onExport={() => setExportOpen(true)} onDetail={(t, p) => setDetailT({ training: t, part: p })} />}
+        {tab === "dashboard" && isManager && <Dashboard reportees={reportees} trainings={teamT} onAdd={() => setAdd({})} onBulk={() => setBulk({ ids: [] })} onRefresh={refresh} refreshing={refreshing} fyList={allFYs} fyFilter={fyFilterD} setFyFilter={setFyFilterD} onExport={() => setExportOpen(true)} onDetail={(t, p) => setDetailT({ training: t, part: p })} />}
         {tab === "approvals" && isManager && <ApprovalsPanel approvals={approvals} onApprove={approveOne} onSendBack={sendBackOne} onRefresh={refresh} refreshing={refreshing} />}
-        {tab === "catalog" && isManager && <CatalogPage catalog={catalog} categories={categories} trainings={trainings} canAssign onSave={saveCatalogItem} onImport={importCatalog} onDelete={deleteCatalogItem} onAssign={id => setAdd({ catalogId: id })} onBulkAssign={ids => setBulk({ ids })} />}
-        {tab === "my-trainings" && !isManager && <MyTrainings trainings={myT} requests={requests} onRequestApproval={(t, p) => setRequestT({ training: t, part: p })} onDetail={(t, p) => setDetailT({ training: t, part: p })} onStart={startTraining} onProgress={updateProgress} fyList={allFYs.length ? allFYs : [getFY()]} fyFilter={fyFilterM} setFyFilter={setFyFilterM} />}
+        {tab === "catalog" && isManager && <CatalogPage catalog={catalog} categories={categories} trainings={teamT} canAssign onSave={saveCatalogItem} onImport={importCatalog} onDelete={deleteCatalogItems} onAssign={id => setAdd({ catalogId: id })} onBulkAssign={ids => setBulk({ ids })} />}
+        {tab === "my-trainings" && hasOwnTrainings && <MyTrainings trainings={myT} requests={requests} onRequestApproval={(t, p) => setRequestT({ training: t, part: p })} onDetail={(t, p) => setDetailT({ training: t, part: p })} onStart={startTraining} onProgress={updateProgress} fyList={allFYs.length ? allFYs : [getFY()]} fyFilter={fyFilterM} setFyFilter={setFyFilterM} />}
         {tab === "knowledge-hub" && <KnowledgeHub trainings={trainings} reportees={people} requests={requests} onDetail={(t, p) => setDetailT({ training: t, part: p })} />}
-        {tab === "reminders" && isManager && <Reminders reportees={reportees} trainings={trainings} settings={managerSettings} onSaveSettings={saveReminderSettings} onMarkReminded={markReminded} />}
-        {tab === "settings" && isManager && <Settings reportees={reportees} trainings={trainings} currentFY={currentFY} onAddReportee={createUser} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} onFinalizeYear={finalizeYear} onRefreshReportees={refresh} />}
+        {tab === "reminders" && isManager && <Reminders reportees={reportees} trainings={teamT} settings={managerSettings} onSaveSettings={saveReminderSettings} onMarkReminded={markReminded} />}
+        {tab === "settings" && isManager && <Settings reportees={reportees} trainings={teamT} currentFY={currentFY} onAddReportee={createUser} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} onFinalizeYear={finalizeYear} onRefreshReportees={refresh} />}
       </main>
       {detailTarget && <DetailModal training={detailTarget.training} part={detailTarget.part} reportees={people} requests={requests} onClose={() => setDetailT(null)}
-        onEdit={isManager ? t => setEditT(t) : null} onDelete={isManager ? deleteTraining : null} />}
+        onEdit={isManager && detailTarget.training.assigned_to !== profile.id ? t => setEditT(t) : null}
+        onDelete={isManager && detailTarget.training.assigned_to !== profile.id ? deleteTraining : null} />}
       {editTarget && <EditTrainingModal training={editTarget} categories={categories} onSubmit={editTraining} onClose={() => setEditT(null)} />}
       {requestTarget && <ApprovalRequestModal training={requestTarget.training} part={requestTarget.part} requests={requests} onSubmit={requestApproval} onClose={() => setRequestT(null)} />}
       {addModal && <AssignModal reportees={reportees} categories={categories} catalog={catalog} currentFY={currentFY} initialCatalogId={addModal.catalogId} onSubmit={addTraining} onClose={() => setAdd(false)} onGoToSettings={() => { setAdd(false); setTab("settings"); }} />}
       {bulkModal && <BulkAssignModal reportees={reportees} catalog={catalog} currentFY={currentFY} initialIds={bulkModal.ids} onSubmit={bulkAssign} onClose={() => setBulk(null)} onGoToSettings={() => { setBulk(null); setTab("settings"); }} />}
-      {exportOpen && <ExportModal reportees={reportees} trainings={trainings} requests={requests} fyList={allFYs} currentFY={currentFY} onClose={() => setExportOpen(false)} />}
+      {exportOpen && <ExportModal reportees={reportees} trainings={teamT} requests={requests} fyList={allFYs} currentFY={currentFY} onClose={() => setExportOpen(false)} />}
     </div>
   );
 }

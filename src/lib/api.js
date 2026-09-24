@@ -156,8 +156,8 @@ export async function insertCatalogItems(rows) {
   if (error) throw error.code === "23505" ? new Error("One or more training names already exist in the catalog") : error;
 }
 
-export async function deleteCatalogItem(id) {
-  const { error } = await supabase.from("training_catalog").delete().eq("id", id);
+export async function deleteCatalogItems(ids) {
+  const { error } = await supabase.from("training_catalog").delete().in("id", ids);
   if (error) throw error;
 }
 
