@@ -26,6 +26,14 @@ export async function updateMyPassword(newPassword) {
   if (error) throw error;
 }
 
+// Exchanges the one-time token from an invite / reset email for a session.
+// Called only when the user presses the button, so mail scanners that
+// pre-open links (e.g. Outlook Safe Links) can't use the token up.
+export async function verifyEmailLink(tokenHash, type) {
+  const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
+  if (error) throw error;
+}
+
 export async function requestPasswordReset(email) {
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: window.location.origin,

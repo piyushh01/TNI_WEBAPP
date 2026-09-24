@@ -325,7 +325,7 @@ function AuthCard({ children }) {
 
 // The role picked here is checked against the role stored on the account
 // (App verifies it once the profile loads and signs out on a mismatch).
-function LoginScreen({ onSignInAs, roleError }) {
+function LoginScreen({ onSignInAs, roleError, notice }) {
   const [stage, setStage] = useState("signin"); // signin | forgot | forgot-sent
   const [role, setRole] = useState("reportee");
   const [email, setEmail] = useState(""); const [password, setPassword] = useState("");
@@ -354,6 +354,7 @@ function LoginScreen({ onSignInAs, roleError }) {
         <div className="text-[12px] text-muted-foreground mt-1">BAPM team learning, made accountable.</div>
       </div>
 
+      {notice && stage === "signin" && <Notice tone="warning" className="mb-4">{notice}</Notice>}
       {stage === "signin" && (
         <form className="space-y-4" onSubmit={e => { e.preventDefault(); if (email && password && !busy) doSignIn(); }}>
           <div>
@@ -402,6 +403,39 @@ function LoginScreen({ onSignInAs, roleError }) {
           <Button variant="outline" className="w-full h-11" onClick={() => setStage("signin")}>Back to sign in</Button>
         </div>
       )}
+    </AuthCard>
+  );
+}
+
+// Landing page for invite / reset emails. The token is only used when the
+// person presses the button (mail scanners that pre-open links don't).
+function AcceptEmailLink({ type, onAccept, onCancel }) {
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  const isReset = type === "recovery";
+  const accept = async () => {
+    setBusy(true); setErr("");
+    try { await onAccept(); }
+    catch (e) {
+      setErr(/expired|invalid/i.test(e.message || "")
+        ? "This link has expired or was already used. Ask your manager or HR to send you a new setup link."
+        : e.message || "This link couldn't be used.");
+      setBusy(false);
+    }
+  };
+  return (
+    <AuthCard>
+      <div className="flex flex-col items-center text-center">
+        <BrandMark className="h-14" />
+        <div className="text-[18px] font-bold tracking-[-0.01em] mt-4">{isReset ? "Reset your password" : "Welcome to Skillgo"}</div>
+        <p className="text-[12.5px] text-muted-foreground mt-2 leading-relaxed">
+          {isReset ? "Continue to choose a new password for your account." : "You've been invited to Skillgo, o2h's team learning tracker. Continue to set your password."}
+        </p>
+      </div>
+      <div className="space-y-4 mt-7">
+        {err && <FormError>{err}</FormError>}
+        <Button className="w-full h-11" disabled={busy} onClick={accept}>{busy ? "Please wait…" : isReset ? "Continue" : "Accept invitation"}</Button>
+        <button type="button" className="block mx-auto text-[12px] text-[#6d756f] hover:text-indigo-700 transition-colors" onClick={onCancel}>Go to sign in</button>
+      </div>
     </AuthCard>
   );
 }
@@ -2743,6 +2777,24 @@ export default function App() {
   const [loginRole, setLoginRole] = useState(null); // role picked on the login screen, verified once the profile loads
   const [loginError, setLoginError] = useState("");
   const [recovery, setRecovery] = useState(false);  // arrived via a password-reset link
+  // Invite / reset emails link to ?token_hash=…&type=… — verified on a button press.
+  const [emailLink, setEmailLink] = useState(() => {
+    const q = new URLSearchParams(window.location.search);
+    const token_hash = q.get("token_hash"), type = q.get("type");
+    return token_hash && ["invite", "recovery", "magiclink", "email", "signup"].includes(type) ? { token_hash, type } : null;
+  });
+  // Supabase sends people back with #error_code=… when a link is expired/used.
+  const [linkError, setLinkError] = useState(() => {
+    const h = new URLSearchParams(window.location.hash.slice(1));
+    const code = h.get("error_code");
+    if (!code) return "";
+    return code === "otp_expired"
+      ? "This link has expired or was already used. Ask your manager or HR to send you a new setup link."
+      : (h.get("error_description") || "This link couldn't be used.").replace(/\+/g, " ");
+  });
+  useEffect(() => {
+    if (linkError) window.history.replaceState(null, "", window.location.pathname);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [reportees, setReportees] = useState([]);
   const [people, setPeople] = useState([]);         // every profile visible to this user (name lookups, admin list)
@@ -2967,7 +3019,17 @@ svg.lucide{display:block;flex-shrink:0}
   const sendSetupLink = async (u) => { const res = await api.sendSetupLink(u.id); await loadData(); return res; };
 
   if (authLoading) return <LoadingScreen />;
-  if (!session) return <LoginScreen onSignInAs={r => { setLoginRole(r); if (r) setLoginError(""); }} roleError={loginError} />;
+  if (emailLink) return (
+    <AcceptEmailLink type={emailLink.type}
+      onAccept={async () => {
+        await api.verifyEmailLink(emailLink.token_hash, emailLink.type);
+        if (emailLink.type === "recovery") setRecovery(true);
+        window.history.replaceState(null, "", window.location.pathname);
+        setEmailLink(null);
+      }}
+      onCancel={() => { window.history.replaceState(null, "", window.location.pathname); setEmailLink(null); }} />
+  );
+  if (!session) return <LoginScreen onSignInAs={r => { setLoginRole(r); if (r) { setLoginError(""); setLinkError(""); } }} roleError={loginError} notice={linkError} />;
   if (!profile) return <LoadingScreen label="Loading your profile…" />;
   if (recovery || profile.must_change_password) return <ForcePasswordChange recovery={recovery && !profile.must_change_password} onDone={finishForcedPasswordChange} onCancel={logout} />;
   if (dataLoading) return <LoadingScreen />;
