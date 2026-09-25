@@ -41,6 +41,8 @@ const MODE_OPTIONS = [
 ];
 const PRIORITY_OPTIONS = ["low", "medium", "high", "critical"];
 const ROLE_LABELS = { reportee: "Reportee", reporting_manager: "Reporting Manager", admin: "Admin / HR" };
+// Who can be picked as someone's reporting manager (Admin / HR too).
+const canManageOthers = p => p.role === "reporting_manager" || p.role === "admin";
 // PDF user guides in public/guides (built from docs/guides).
 const GUIDE_URLS = { reportee: "/guides/Skillgo-Reportee-Guide.pdf", reporting_manager: "/guides/Skillgo-Reporting-Manager-Guide.pdf", admin: "/guides/Skillgo-Admin-HR-Guide.pdf" };
 const PROGRESS_STEPS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
@@ -542,12 +544,14 @@ function AppShell({ renderSidebar, children }) {
 }
 
 // ── SIDEBAR ───────────────────────────────────────────────────────────────────
-function Sidebar({ profile, tab, setTab, onLogout, myDone, myTotal, trainings, currentFY, pendingApprovalsCount, showMyTrainings }) {
+function Sidebar({ profile, tab, setTab, onLogout, myDone, myTotal, trainings, currentFY, pendingApprovalsCount, showMyTrainings, showApprovals }) {
   const isManager = profile.role === "reporting_manager";
   const isAdmin = profile.role === "admin";
   const overdue = trainings.filter(t => isOpenStatus(getEffStatus(t)) && isOverdue(t.due_date)).length;
   const nav = isAdmin ? [
     { id: "overview", icon: LayoutDashboard, label: "Overview" },
+    // HR who is also someone's reporting manager approves their trainings here.
+    ...(showApprovals ? [{ id: "approvals", icon: Library, label: "Approvals", badge: pendingApprovalsCount || null }] : []),
     { id: "users", icon: UserCog, label: "Users" },
     { id: "catalog", icon: FolderOpen, label: "Training Catalog" },
   ] : isManager ? [
@@ -3205,7 +3209,7 @@ function AdminOverview({ people, trainings, requests, onDetail, onExport, onRefr
   const [mgrF, setMgrF] = useState("all");
   const [member, setMember] = useState(null);
   const fyList = [...new Set([getFY(), ...trainings.map(t => t.fy)])].filter(Boolean).sort().reverse();
-  const managers = people.filter(p => p.role === "reporting_manager");
+  const managers = people.filter(p => p.role === "reporting_manager" || (p.role === "admin" && people.some(x => x.manager_id === p.id)));
   // Everyone who reports to someone — includes managers with their own senior.
   const reportees = people.filter(p => p.role !== "admin" && (p.role === "reportee" || p.manager_id) && (mgrF === "all" || p.manager_id === mgrF));
   const repIds = new Set(reportees.map(r => r.id));
@@ -3367,7 +3371,7 @@ function BulkUsersModal({ mode, people, me, onCreate, onClose, onDone }) {
   const validate = list => {
     const sheetEmails = new Map();
     list.forEach(r => { if (r.email) sheetEmails.set(r.email, (sheetEmails.get(r.email) || 0) + 1); });
-    const sheetManagers = new Set(list.filter(r => r.role === "reporting_manager").map(r => r.email));
+    const sheetManagers = new Set(list.filter(r => canManageOthers(r)).map(r => r.email));
     return list.map(r => {
       const errors = [];
       if (!r.full_name) errors.push("name missing");
@@ -3381,7 +3385,7 @@ function BulkUsersModal({ mode, people, me, onCreate, onClose, onDone }) {
         if (r.manager_email) {
           const m = byEmail.get(r.manager_email);
           if (r.manager_email === r.email) errors.push("can't report to themselves");
-          else if (!(m && m.role === "reporting_manager") && !sheetManagers.has(r.manager_email)) errors.push("reporting manager not found");
+          else if (!(m && canManageOthers(m)) && !sheetManagers.has(r.manager_email)) errors.push("reporting manager not found");
         }
       }
       return { ...r, errors };
@@ -3518,7 +3522,10 @@ function UserFormModal({ user, managers, onSubmit, onClose }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
-  const mgrOptions = managers.filter(m => m.id !== user?.id);
+  // Active managers and HR (plus the current one, even if inactive), never the user themselves.
+  // Also skip anyone who already reports (directly or up the chain) to this user — that would be a loop.
+  const reportsToUser = m => { for (let cur = m, hops = 0; cur?.manager_id && hops < 50; hops++) { if (cur.manager_id === user?.id) return true; cur = managers.find(x => x.id === cur.manager_id); } return false; };
+  const mgrOptions = managers.filter(m => m.id !== user?.id && (m.is_active || m.id === user?.manager_id) && !(user && reportsToUser(m)));
   const ok = f.full_name.trim() && f.email.trim() && (f.role !== "reportee" || f.manager_id);
   const submit = async () => {
     setBusy(true); setErr("");
@@ -3549,7 +3556,7 @@ function UserFormModal({ user, managers, onSubmit, onClose }) {
               <SelectTrigger><SelectValue placeholder="Select manager" /></SelectTrigger>
               <SelectContent>
                 {f.role !== "reportee" && <SelectItem value="__none__">— None —</SelectItem>}
-                {mgrOptions.map(m => <SelectItem key={m.id} value={m.id}>{m.full_name}</SelectItem>)}
+                {mgrOptions.map(m => <SelectItem key={m.id} value={m.id}>{m.full_name}{m.role === "admin" ? " (Admin / HR)" : ""}</SelectItem>)}
               </SelectContent>
             </Select>
             {mgrOptions.length === 0 && <p className="text-xs text-amber-700">No managers yet — add a Reporting Manager first.</p>}
@@ -3578,7 +3585,7 @@ function UsersAdmin({ me, people, onCreate, onCreateBulk, onUpdate, onToggleActi
   const [result, setResult] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [err, setErr] = useState("");
-  const managers = people.filter(p => p.role === "reporting_manager");
+  const managers = people.filter(canManageOthers);
   const nameOf = id => people.find(p => p.id === id)?.full_name;
   const q = search.trim().toLowerCase();
   const shown = people.filter(p => (roleF === "all" || p.role === roleF) && (!q || p.full_name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q)));
@@ -3897,8 +3904,8 @@ svg.lucide{display:block;flex-shrink:0}
   const loadData = async () => {
     if (!profile) return;
     if (profile.role === "admin") {
-      const [cats, ppl, cat, trs, reqs] = await Promise.all([api.listCategories(), api.listVisibleProfiles(), api.listCatalog(), api.listTrainings(), api.listAllRequests()]);
-      setCategories(cats); setPeople(ppl); setCatalog(cat); setTrainings(trs); setRequests(reqs);
+      const [cats, ppl, cat, trs, reqs, appr] = await Promise.all([api.listCategories(), api.listVisibleProfiles(), api.listCatalog(), api.listTrainings(), api.listAllRequests(), api.listPendingApprovals()]);
+      setCategories(cats); setPeople(ppl); setCatalog(cat); setTrainings(trs); setRequests(reqs); setApprovals(appr);
       return;
     }
     const [cats, trs, ppl] = await Promise.all([api.listCategories(), api.listTrainings(), api.listVisibleProfiles()]);
@@ -4110,9 +4117,11 @@ svg.lucide{display:block;flex-shrink:0}
   if (isAdmin) {
     // People HR can assign trainings to (anyone who has a reporting manager to approve them).
     const assignable = people.filter(p => p.is_active && p.role !== "admin" && (p.role === "reportee" || p.manager_id));
+    const hasReportees = people.some(p => p.manager_id === profile.id);
     return (
       <>
-        <AppShell renderSidebar={close => <Sidebar profile={profile} tab={tab} setTab={t => { setTab(t); close(); }} onLogout={logout} myDone={0} myTotal={0} trainings={[]} currentFY={currentFY} pendingApprovalsCount={0} />}>
+        <AppShell renderSidebar={close => <Sidebar profile={profile} tab={tab} setTab={t => { setTab(t); close(); }} onLogout={logout} myDone={0} myTotal={0} trainings={[]} currentFY={currentFY} pendingApprovalsCount={approvals.length} showApprovals={hasReportees || approvals.length > 0} />}>
+          {tab === "approvals" && <ApprovalsPanel approvals={approvals} onApprove={approveOne} onSendBack={sendBackOne} onRefresh={refresh} refreshing={refreshing} />}
           {tab === "overview" && <AdminOverview people={people} trainings={trainings} requests={requests} onRefresh={refresh} refreshing={refreshing} onDeleteTraining={deleteTraining}
             onDetail={(t, p) => setDetailT({ training: t, part: p })} onExport={(reps, fy) => setExportOpen({ reportees: reps, fy })} />}
           {tab === "users" && <UsersAdmin me={profile} people={people} onCreate={createUser} onCreateBulk={createUserQuiet} onUpdate={updateUser} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} onTempPassword={setTempPassword} onDelete={deleteUser} onRefresh={refresh} />}

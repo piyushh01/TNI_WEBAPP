@@ -1,6 +1,8 @@
 import { admin, route, getCaller, getProfile, HttpError, appOrigin, appLink, tempPassword } from "./_lib.js";
 
 const ROLES = ["reportee", "reporting_manager", "admin"];
+// Admin / HR can also be someone's reporting manager.
+const MANAGER_ROLES = ["reporting_manager", "admin"];
 
 // Creates a user. Two ways to onboard them:
 //   delivery "email"    (default) — invite email with a link to set their password;
@@ -25,7 +27,7 @@ export default route(async (req) => {
   if (role === "reportee" && !manager_id) throw new HttpError(400, "A reportee needs a reporting manager");
   if (manager_id) {
     const mgr = await getProfile(manager_id);
-    if (mgr.role !== "reporting_manager") throw new HttpError(400, "Selected reporting manager is not a manager");
+    if (!MANAGER_ROLES.includes(mgr.role)) throw new HttpError(400, "Selected reporting manager is not a manager");
   }
 
   const cleanEmail = email.trim().toLowerCase();

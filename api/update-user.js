@@ -1,6 +1,8 @@
 import { admin, route, getCaller, getProfile, HttpError } from "./_lib.js";
 
 const ROLES = ["reportee", "reporting_manager", "admin"];
+// Admin / HR can also be someone's reporting manager.
+const MANAGER_ROLES = ["reporting_manager", "admin"];
 
 // Admin-only: change a user's name, role or reporting manager.
 export default route(async (req) => {
@@ -17,7 +19,7 @@ export default route(async (req) => {
   if (role !== undefined) {
     if (!ROLES.includes(role)) throw new HttpError(400, "Invalid role");
     if (target.id === caller.id && role !== "admin") throw new HttpError(400, "You can't remove your own admin role");
-    if (target.role === "reporting_manager" && role !== "reporting_manager") {
+    if (MANAGER_ROLES.includes(target.role) && !MANAGER_ROLES.includes(role)) {
       const { count } = await admin().from("profiles").select("id", { count: "exact", head: true }).eq("manager_id", target.id);
       if (count) throw new HttpError(400, `${target.full_name} still has ${count} reportee(s) — move them to another manager first`);
     }
@@ -27,7 +29,7 @@ export default route(async (req) => {
     if (manager_id) {
       if (manager_id === target.id) throw new HttpError(400, "A user can't report to themselves");
       const mgr = await getProfile(manager_id);
-      if (mgr.role !== "reporting_manager") throw new HttpError(400, "Selected reporting manager is not a manager");
+      if (!MANAGER_ROLES.includes(mgr.role)) throw new HttpError(400, "Selected reporting manager is not a manager");
       // No loops: the new manager must not (indirectly) report to this user.
       for (let cur = mgr, hops = 0; cur?.manager_id && hops < 50; hops++) {
         if (cur.manager_id === target.id) throw new HttpError(400, `${mgr.full_name} already reports to ${target.full_name} — that would create a loop`);
