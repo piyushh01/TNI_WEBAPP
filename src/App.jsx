@@ -4,7 +4,7 @@ import {
   BookOpen, LogOut, Plus, RefreshCw, Download, Search, Link2, X,
   ChevronDown, ChevronUp, ChevronRight, Check, CircleDot, Circle, Clock, AlertCircle,
   Target, Users, Package, Trophy, Pencil, Trash2, GraduationCap, ExternalLink,
-  Mail, Copy, Sparkles, ShieldCheck, CalendarDays, Play, Upload, FolderOpen, UserCog, Send, Menu,
+  Mail, Copy, Sparkles, ShieldCheck, CalendarDays, Play, Upload, FolderOpen, UserCog, Send, Menu, FileText,
 } from "lucide-react";
 import o2hLogo from "./assets/o2h-logo.svg";
 import o2hLogoLight from "./assets/o2h-logo-light.svg";
@@ -41,6 +41,8 @@ const MODE_OPTIONS = [
 ];
 const PRIORITY_OPTIONS = ["low", "medium", "high", "critical"];
 const ROLE_LABELS = { reportee: "Reportee", reporting_manager: "Reporting Manager", admin: "Admin / HR" };
+// PDF user guides in public/guides (built from docs/guides).
+const GUIDE_URLS = { reportee: "/guides/Skillgo-Reportee-Guide.pdf", reporting_manager: "/guides/Skillgo-Reporting-Manager-Guide.pdf", admin: "/guides/Skillgo-Admin-HR-Guide.pdf" };
 const PROGRESS_STEPS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 const DEFAULT_SETTINGS = { pendingReminderDays: 7, overdueReminderDays: 3 };
 // Statuses where the ball is still in the reportee's court (relevant for "overdue").
@@ -587,7 +589,11 @@ function Sidebar({ profile, tab, setTab, onLogout, myDone, myTotal, trainings, c
           );
         })}
       </nav>
-      <div className="mt-3 border-t border-white/[0.14] pt-3">
+      <a href={GUIDE_URLS[profile.role]} target="_blank" rel="noreferrer"
+        className="mt-2 flex items-center gap-2.5 rounded-lg px-2.5 h-10 text-[13px] text-[#d3ded6] hover:bg-white/[0.07] hover:text-white transition-colors outline-none focus-visible:ring-2 focus-visible:ring-white/40">
+        <FileText className="h-[17px] w-[17px] opacity-80" />User Guide
+      </a>
+      <div className="mt-2 border-t border-white/[0.14] pt-3">
         <div className="flex items-center gap-2.5 px-2 pb-3">
           <UAvatar solid name={profile.full_name} color={profile.color} className="h-8 w-8 ring-2 ring-white/10" />
           <div className="min-w-0">

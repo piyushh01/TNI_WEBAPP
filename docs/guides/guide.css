@@ -1,0 +1,37 @@
+/* Shared print styles for the Skillgo user guides (rendered to PDF by build.mjs). */
+@page { size: A4; margin: 18mm 16mm 20mm; }
+* { box-sizing: border-box; }
+body { font-family: "Montserrat", "Segoe UI", Arial, sans-serif; color: #142019; font-size: 10.5pt; line-height: 1.55; margin: 0; }
+.cover { display: flex; align-items: center; gap: 16px; padding: 22px 26px; border-radius: 14px; background: #234532; color: #fff; margin-bottom: 18px; }
+.cover img { height: 46px; background: #fff; border-radius: 8px; padding: 6px 8px; }
+.cover .title { font-size: 22pt; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+.cover .sub { font-size: 10.5pt; color: #c9dcc2; margin-top: 4px; }
+.covers { color: #56615a; font-size: 9.5pt; margin: 0 0 18px; }
+.toc { border: 1px solid #e0e5e1; border-radius: 12px; padding: 12px 18px; margin-bottom: 20px; background: #f8faf8; }
+.toc b { font-size: 9pt; letter-spacing: .08em; text-transform: uppercase; color: #56615a; }
+.toc ol { margin: 6px 0 0; padding-left: 18px; columns: 2; column-gap: 28px; font-size: 9.5pt; }
+h2 { font-size: 14.5pt; color: #365a42; margin: 24px 0 8px; padding-bottom: 5px; border-bottom: 1px solid #e0e5e1; break-after: avoid; }
+h3 { font-size: 11pt; margin: 14px 0 4px; break-after: avoid; }
+p { margin: 5px 0 8px; }
+ol, ul { margin: 4px 0 10px; padding-left: 20px; }
+li { margin: 3px 0; }
+b, strong { font-weight: 600; }
+.ui { font-weight: 600; color: #365a42; }          /* a button / menu name */
+.tag { display: inline-block; font-size: 8.5pt; font-weight: 600; padding: 0 6px; border-radius: 99px; border: 1px solid; }
+.tag.green { color: #3f6a3a; background: #f0f6ef; border-color: #cadfc6; }
+.tag.amber { color: #7f5f1d; background: #fbf7ec; border-color: #e8d8ad; }
+.tag.red { color: #974343; background: #fcf2f0; border-color: #efcbc5; }
+.tag.violet { color: #544d78; background: #f4f3f8; border-color: #d9d5e7; }
+.tag.orange { color: #8d5430; background: #fcf4ee; border-color: #edd0b8; }
+.note { border-radius: 10px; padding: 9px 13px; margin: 10px 0; border: 1px solid; break-inside: avoid; }
+.note .h { font-weight: 700; display: block; margin-bottom: 2px; }
+.note.info { background: #f4f8f1; border-color: #d3e2c9; }
+.note.warn { background: #fbf7ec; border-color: #e8d8ad; }
+.note.danger { background: #fcf2f0; border-color: #efcbc5; }
+table { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 9.5pt; break-inside: avoid; }
+th { text-align: left; background: #f8faf8; color: #56615a; font-weight: 600; font-size: 8.5pt; text-transform: uppercase; letter-spacing: .05em; }
+th, td { border-bottom: 1px solid #e0e5e1; padding: 6px 8px; vertical-align: top; }
+.faq h3 { margin-top: 12px; }
+.section { break-inside: auto; }
+.pb { break-before: page; }
+code { font-family: Consolas, monospace; font-size: 9pt; background: #f3f5f3; padding: 0 4px; border-radius: 4px; }

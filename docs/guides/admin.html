@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Skillgo — Admin / HR Guide</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="guide.css"></head>
+<body>
+<div class="cover">
+  <img src="../../src/assets/o2h-logo.svg" alt="o2h technology">
+  <div><div class="title">Skillgo — Admin / HR Guide</div><div class="sub">Manage people and reporting lines, keep the Training Catalog, and follow progress across o2h</div></div>
+</div>
+<p class="covers">Covers: signing in, adding users (one at a time or in bulk), roles and reporting lines, access control, the organisation-wide Overview and its charts, the Training Catalog and common questions.</p>
+
+<div class="toc"><b>Contents</b><ol>
+  <li>Your role</li><li>Signing in</li><li>Your screen</li><li>Users: adding people</li><li>Users: bulk add</li>
+  <li>Roles &amp; reporting lines</li><li>Access: setup links, deactivate, delete</li><li>Overview</li>
+  <li>Training Catalog</li><li>Invite emails &amp; links</li><li>FAQ</li>
+</ol></div>
+
+<h2>1. Your role</h2>
+<p>As <b>Admin / HR</b> you look after Skillgo for the whole organisation:</p>
+<ul>
+  <li><b>People:</b> create managers and reportees, set who reports to whom, and control access.</li>
+  <li><b>Visibility:</b> see everyone's training progress, how many trainings each manager has approved, and what is overdue. This is view only.</li>
+  <li><b>Catalog:</b> maintain the company-wide Training Catalog, including bulk import from o2h training sheets.</li>
+  <li><b>Clean-up:</b> delete trainings that were assigned by mistake.</li>
+</ul>
+<p>Assigning trainings and approving completions stays with each person's <b>Reporting Manager</b>.</p>
+
+<h2>2. Signing in</h2>
+<ol>
+  <li>Open <b>https://tni-webapp.vercel.app</b>.</li>
+  <li>Under <b>Sign in as</b>, choose <span class="ui">Admin / HR</span>, enter your email and password, and click <span class="ui">Sign in</span>.</li>
+</ol>
+<div class="note danger"><span class="h">Change the starting password</span>If you were given a shared or default password, change it straight away: sign out, click <span class="ui">Forgot your password?</span>, and follow the email link.</div>
+
+<h2>3. Your screen</h2>
+<table>
+  <tr><th>Menu item</th><th>What it's for</th></tr>
+  <tr><td>Overview</td><td>Organisation-wide progress, charts, manager and employee tables, export</td></tr>
+  <tr><td>Users</td><td>Add, edit, deactivate and delete people; set roles and reporting managers</td></tr>
+  <tr><td>Training Catalog</td><td>The company list of trainings, with bulk import</td></tr>
+  <tr><td>User Guide</td><td>Opens this guide</td></tr>
+</table>
+
+<h2>4. Users: adding people</h2>
+<ol>
+  <li>Go to <span class="ui">Users</span> and click <span class="ui">Add User</span>.</li>
+  <li>Enter the <b>Full name</b> and <b>Email</b>, and choose a <b>Role</b>:
+    <ul>
+      <li><b>Reportee</b>: must have a <b>Reporting Manager</b>.</li>
+      <li><b>Reporting Manager</b>: a Reporting Manager is optional. Set one if this manager also reports to someone (see section 6).</li>
+      <li><b>Admin / HR</b>: no reporting manager.</li>
+    </ul>
+  </li>
+  <li>Click <span class="ui">Add &amp; send invite</span>. The person gets an invite email and sets their own password.</li>
+</ol>
+<p>Add Reporting Managers <b>before</b> their reportees, so the manager can be picked from the list.</p>
+<div class="note warn"><span class="h">If the email can't be sent</span>Skillgo shows <i>"Account ready — but the email couldn't be sent"</i> with a one-time link. Click <span class="ui">Copy</span> and share it on Teams or Outlook.</div>
+
+<h2>5. Users: bulk add</h2>
+<ol>
+  <li>On <span class="ui">Users</span>, click <span class="ui">Bulk Add</span>, then <span class="ui">Template</span>.</li>
+  <li>Fill in the <b>Users</b> sheet, one person per row:
+    <table>
+      <tr><th>Column</th><th>What to enter</th></tr>
+      <tr><td>Full Name</td><td>e.g. Priya Shah</td></tr>
+      <tr><td>Email</td><td>their o2h email</td></tr>
+      <tr><td>Role</td><td>Reportee, Reporting Manager or Admin / HR (blank = Reportee)</td></tr>
+      <tr><td>Reporting Manager Email</td><td>Required for reportees: the email of an existing manager, <b>or of a manager added in the same sheet</b></td></tr>
+    </table>
+  </li>
+  <li>Upload the file. Each row is checked for a missing name, invalid email, duplicates in the sheet, people who are already users, unknown roles, and a missing or unknown reporting manager. Rows with problems are listed with the reason and skipped.</li>
+  <li>Click <span class="ui">Add N users</span>. Managers in the sheet are created first, so their reportees can be linked to them straight away. Each row shows <i>"Invite emailed"</i> or <i>"Added — share link"</i>.</li>
+  <li>If any invites couldn't be emailed, click <span class="ui">Copy links</span> to copy all the one-time links, with names, in one go.</li>
+</ol>
+<p>Reporting managers can also bulk-add their own reportees from <b>Team &amp; Settings</b>.</p>
+
+<h2>6. Roles &amp; reporting lines</h2>
+<p>Click the pencil icon next to a user to change their <b>name</b>, <b>role</b> or <b>reporting manager</b>.</p>
+<h3>A manager who also reports to someone</h3>
+<p>Keep their role as <b>Reporting Manager</b> and set their <b>Reporting Manager</b> to their senior. They then:</p>
+<ul>
+  <li>keep their own team, dashboard and approvals,</li>
+  <li>get <b>My Trainings</b> for their own trainings, which their senior assigns and approves,</li>
+  <li>can choose Reportee on the sign-in screen to go straight to their own trainings.</li>
+</ul>
+<h3>Moving someone to another manager</h3>
+<p>Edit the person and pick the new Reporting Manager. Their existing trainings move with them, and the new manager can approve them.</p>
+<h3>Rules Skillgo enforces</h3>
+<ul>
+  <li>A reportee must always have a reporting manager.</li>
+  <li>Reporting lines can't loop (A reports to B while B reports to A).</li>
+  <li>A manager who still has reportees can't be changed to another role or deleted. Move their reportees first.</li>
+  <li>You can't remove your own Admin role or delete yourself.</li>
+</ul>
+
+<h2>7. Access: setup links, deactivate, delete</h2>
+<table>
+  <tr><th>Status / action</th><th>What it means</th></tr>
+  <tr><td><span class="tag green">Active</span></td><td>Has set a password and can sign in</td></tr>
+  <tr><td><span class="tag amber">Invite pending</span></td><td>Hasn't set their password yet</td></tr>
+  <tr><td><span class="tag red">Inactive</span></td><td>Sign-in blocked (deactivated)</td></tr>
+  <tr><td>Setup link</td><td>Sends a fresh "set your password" email. Use it for expired invites or forgotten passwords.</td></tr>
+  <tr><td>Deactivate / Reactivate</td><td>Blocks or restores sign-in. All their data is kept. Use this when someone leaves or goes on long leave.</td></tr>
+  <tr><td>Delete (bin icon)</td><td><b>Permanently</b> removes the person with all their trainings, notes and approvals. It can't be undone. Trainings they had assigned to others are kept and re-owned by you.</td></tr>
+</table>
+
+<h2>8. Overview</h2>
+<p>The Overview is your organisation-wide picture. Use the filters at the top to narrow it to <b>one manager's team</b> and a <b>financial year</b>. Everything on the page follows those filters.</p>
+<h3>Cards</h3>
+<p><b>Employees</b>, <b>Trainings assigned</b>, <b>Completed</b>, <b>In progress</b>, <b>Awaiting approval</b> (waiting on managers) and <b>Overdue</b>.</p>
+<h3>Progress trends</h3>
+<p>Switch between <span class="ui">Weekly</span> and <span class="ui">Monthly</span>:</p>
+<ul>
+  <li><b>Training activity</b>: units assigned, submitted and completed per period. Hover to see exact numbers.</li>
+  <li><b>Active learners</b>: how many people submitted a training in each period, which tells you whether people are actually doing their trainings.</li>
+  <li><b>Where trainings stand</b>: counts by status.</li>
+  <li><b>Completion by category</b>: the share of assigned units completed per training category.</li>
+</ul>
+<p>Click <span class="ui">Table</span> on any chart to see the numbers as a table.</p>
+<h3>Managers table</h3>
+<p>For each manager: team size, trainings assigned and completed, <b>approvals given</b>, trainings <b>sent back</b>, trainings <b>awaiting approval</b> (their backlog), overdue, and completion %.</p>
+<h3>Employees table</h3>
+<p>For each person: their manager, trainings assigned, not started, in progress, awaiting approval, completed, overdue and a progress bar. Click <span class="ui">View</span> to see their trainings. Click any training for full details, or click the bin icon (or <span class="ui">Delete</span> in the details) to remove a training that was added by mistake.</p>
+<h3>Export</h3>
+<p>Click <span class="ui">Export</span> to download an Excel report for the people currently shown: Team Summary, Training Details, and Learnings &amp; Notes.</p>
+
+<h2>9. Training Catalog</h2>
+<p>The catalog is shared by all managers. Reportees can also pick from it to assign trainings to themselves.</p>
+<ul>
+  <li><span class="ui">Add Training</span>: name, category, mode (with trainer for Face to Face), priority, optional details, reference links and parts. The material link can be added later, but it's required before the training is assigned.</li>
+  <li><span class="ui">Bulk Import</span>: upload a <b>New Joiner 6 Months Training Plan</b> or <b>TNI plan</b> sheet as it is (.xlsx or .csv; from Google Sheets use File → Download → Microsoft Excel). Check the categories in the preview, untick what you don't need, and import. Existing names are skipped.</li>
+  <li>Edit with the pencil icon. Delete with the bin icon, or tick several and click <span class="ui">Delete N selected</span>. Deleting from the catalog doesn't affect trainings already assigned.</li>
+</ul>
+<div class="note info"><span class="h">Links are checked everywhere</span>Link fields accept only real web addresses (for example <code>https://…</code> or <code>docs.google.com/…</code>). Plain text shows <i>"Enter a valid link"</i>.</div>
+
+<h2>10. Invite emails &amp; links</h2>
+<ul>
+  <li>Invite and password links work <b>once</b> and for a <b>limited time</b>. If someone sees <i>"This link has expired or was already used"</i>, click <span class="ui">Setup link</span> next to their name.</li>
+  <li>Links first open a Skillgo page with an <span class="ui">Accept invitation</span> / <span class="ui">Continue</span> button. This stops Outlook's link scanner from using up the link before the person clicks it.</li>
+  <li>Emails can land in <b>Junk / Other</b>. Ask people to check there.</li>
+  <li>Reportees get an email when trainings are assigned to them, and managers get one when a reportee assigns themselves a training.</li>
+</ul>
+
+<h2>11. Frequently asked questions</h2>
+<div class="faq">
+  <h3>How do I set up a new team from scratch?</h3>
+  <p>Add the Reporting Manager first, then their reportees (or put both in one Bulk Add sheet). The manager then assigns trainings from the catalog.</p>
+  <h3>Can HR assign trainings or approve them?</h3>
+  <p>No. Assigning and approving stay with the reporting manager. HR can view everything and delete trainings added by mistake.</p>
+  <h3>Someone left the company.</h3>
+  <p><b>Deactivate</b> them to keep their training history for records. Only <b>Delete</b> if the account was created by mistake.</p>
+  <h3>A manager is leaving but has a team.</h3>
+  <p>Edit each reportee and choose their new reporting manager, then deactivate the manager.</p>
+  <h3>Why can't I delete a manager?</h3>
+  <p>They still have reportees. Move the reportees to another manager first.</p>
+</div>
+</body></html>

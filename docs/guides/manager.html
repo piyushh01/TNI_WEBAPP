@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Skillgo — Reporting Manager Guide</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="guide.css"></head>
+<body>
+<div class="cover">
+  <img src="../../src/assets/o2h-logo.svg" alt="o2h technology">
+  <div><div class="title">Skillgo — Reporting Manager Guide</div><div class="sub">Set up your team, assign trainings, approve completions and track progress</div></div>
+</div>
+<p class="covers">Covers: getting started, your team, the Training Catalog (including bulk import), assigning trainings, approvals, the dashboard and its charts, reminders, year-end tools, reports and your own trainings.</p>
+
+<div class="toc"><b>Contents</b><ol>
+  <li>Your role</li><li>Getting started</li><li>Your screen</li><li>Adding your team</li><li>Training Catalog</li>
+  <li>Assigning trainings</li><li>Editing &amp; deleting trainings</li><li>Approvals</li><li>Dashboard</li>
+  <li>Reminders</li><li>Year-end tools</li><li>Management report</li><li>Knowledge Hub</li><li>Your own trainings</li><li>FAQ</li>
+</ol></div>
+
+<h2>1. Your role</h2>
+<p>As a <b>Reporting Manager</b> you:</p>
+<ul>
+  <li>add, update and remove trainings for your reportees,</li>
+  <li>review their progress on the dashboard,</li>
+  <li>approve completed trainings (or send them back with remarks). <b>A training only counts as complete once you approve it.</b></li>
+</ul>
+<p>Every training must have a <b>training material link</b> before it's assigned. Your reportees see it while they work, and it's required before they can ask for approval.</p>
+
+<h2>2. Getting started</h2>
+<ol>
+  <li>HR adds you to Skillgo and you get an email: <b>"You've been invited"</b>. Click <span class="ui">Accept invitation</span>, click it again on the Skillgo page, then set your password.</li>
+  <li>From then on, open <b>https://tni-webapp.vercel.app</b>, choose <span class="ui">Reporting Manager</span> under <b>Sign in as</b>, and sign in with your email and password.</li>
+</ol>
+<p>Forgot your password? Click <span class="ui">Forgot your password?</span> on the sign-in screen.</p>
+
+<h2>3. Your screen</h2>
+<table>
+  <tr><th>Menu item</th><th>What it's for</th></tr>
+  <tr><td>Dashboard</td><td>Team progress, charts, individual cards, year-wise summary, export</td></tr>
+  <tr><td>Approvals</td><td>Completion requests waiting for you (the badge shows how many)</td></tr>
+  <tr><td>My Trainings</td><td>Only shown if you report to a senior manager; see section 14</td></tr>
+  <tr><td>Training Catalog</td><td>The company list of trainings you assign from</td></tr>
+  <tr><td>Knowledge Hub</td><td>Approved learnings from your team</td></tr>
+  <tr><td>Reminders</td><td>Who is due a nudge; send reminder emails (the badge shows overdue trainings)</td></tr>
+  <tr><td>Team &amp; Settings</td><td>Add and manage reportees, year-end tools</td></tr>
+  <tr><td>User Guide</td><td>Opens this guide</td></tr>
+</table>
+<p>The current financial year is shown at the top of the menu (for example <code>FY 2026-27</code>).</p>
+
+<h2>4. Adding your team</h2>
+<p>Go to <span class="ui">Team &amp; Settings</span>.</p>
+<h3>One reportee</h3>
+<ol>
+  <li>Click <span class="ui">Add Reportee</span>, enter their full name and o2h email, pick a colour, and click <span class="ui">Add &amp; send invite</span>.</li>
+  <li>They receive an invite email and set their own password.</li>
+</ol>
+<div class="note warn"><span class="h">If the email can't be sent</span>Skillgo shows <i>"Account ready — but the email couldn't be sent"</i> with a one-time link. Click <span class="ui">Copy</span> and send it to the person on Teams or Outlook.</div>
+<h3>Many reportees at once (Bulk Add)</h3>
+<ol>
+  <li>Click <span class="ui">Bulk Add</span>, then <span class="ui">Template</span> to download the Excel template (columns: <b>Full Name</b>, <b>Email</b>).</li>
+  <li>Fill in one person per row, save, and upload the file.</li>
+  <li>Skillgo checks every row and marks problems (missing name, invalid email, duplicates, people who are already users). Rows with errors are skipped.</li>
+  <li>Click <span class="ui">Add N reportees</span>. Each row then shows <i>"Invite emailed"</i> or <i>"Added — share link"</i>. If any emails couldn't be sent, click <span class="ui">Copy links</span> to copy all their invite links at once.</li>
+</ol>
+<h3>Managing reportees</h3>
+<table>
+  <tr><th>Action</th><th>What it does</th></tr>
+  <tr><td><span class="tag amber">Invite pending</span></td><td>They haven't set their password yet</td></tr>
+  <tr><td>Send setup link</td><td>Emails them a fresh link to set a new password. Use it if the invite expired or they forgot their password.</td></tr>
+  <tr><td>Deactivate / Reactivate</td><td>Blocks or restores their sign-in. Their trainings and history are kept.</td></tr>
+  <tr><td>Delete (bin icon)</td><td><b>Permanently</b> removes the person and all their trainings, notes and approval history. This can't be undone. Use Deactivate if you only want to block access.</td></tr>
+</table>
+<p>To move someone to another manager or change their role, ask HR. They can do it from the Users page.</p>
+
+<h2>5. Training Catalog</h2>
+<p>The catalog is the shared, company-wide list of trainings. Set a training up once here, then assign it to anyone, singly or in bulk.</p>
+<h3>Adding a training</h3>
+<ol>
+  <li>Click <span class="ui">Add Training</span>.</li>
+  <li>Fill in <b>Training Name</b>, <b>Training Category</b> (group, then category), <b>Training Mode</b> and <b>Training Priority</b>. For Face to Face trainings, also enter the <b>Trainer</b>. <b>Training Details</b>, extra reference links and <b>Parts / Modules</b> are optional.</li>
+  <li>The <b>Training Material Link</b> can be left empty in the catalog, but it must be filled in before the training is assigned.</li>
+  <li>Click <span class="ui">Add to catalog</span>.</li>
+</ol>
+<h3>Bulk import from company sheets</h3>
+<p>Click <span class="ui">Bulk Import</span> and upload one of o2h's training sheets exactly as it is:</p>
+<ul>
+  <li><b>New Joiner 6 Months Training Plan</b>: topics, details, trainer and method are read, and the category is matched from the section (Human Resource, BA, Quality Assurance, Information Technology).</li>
+  <li><b>TNI plan</b>: category, method, priority (A+, A, B+, B) and any link in Detail/Comment are read.</li>
+  <li>Any simple sheet with a <b>Training Name</b> column also works.</li>
+</ul>
+<p>Every tab in the workbook is read. In the preview, check each training's category (you can change it from the dropdown), untick anything you don't want, then click <span class="ui">Import</span>. Trainings already in the catalog are skipped. Personal columns such as Status, Completion Date and signatures are ignored.</p>
+<div class="note info"><span class="h">Using Google Sheets?</span>Go to File → Download → Microsoft Excel (.xlsx), then upload that file. PDFs can't be read.</div>
+<h3>Editing and deleting</h3>
+<ul>
+  <li>Click the pencil icon to edit a catalog training.</li>
+  <li>Click the bin icon to delete one, or tick several (or <span class="ui">Select all</span>) and click <span class="ui">Delete N selected</span>.</li>
+  <li>Deleting from the catalog doesn't remove trainings already assigned to people.</li>
+</ul>
+
+<h2>6. Assigning trainings</h2>
+<h3>One training to one or more reportees</h3>
+<ol>
+  <li>On the Dashboard click <span class="ui">Assign Training</span>, or click <span class="ui">Assign</span> next to a training in the catalog.</li>
+  <li>Under <b>From Training Catalog</b>, pick a training, and its details fill in automatically. Or choose <b>+ New training</b> and fill in the fields yourself. Tick <i>"Also save this training to the Training Catalog"</i> to reuse it later.</li>
+  <li>Set the <b>Expected Training End Date</b> (required) and, optionally, a <b>Due Date</b>. The due date drives overdue flags and reminders.</li>
+  <li>Tick the reportees (or <span class="ui">Select all</span>) and click <span class="ui">Assign Training</span>.</li>
+</ol>
+<h3>Many trainings to many reportees (Bulk Assign)</h3>
+<ol>
+  <li>Click <span class="ui">Bulk Assign</span> on the Dashboard, or tick trainings in the catalog and click <span class="ui">Assign N selected</span>.</li>
+  <li>Pick the trainings and the reportees, and set the dates. If a chosen catalog training has no material link, Skillgo asks for one here and saves it to the catalog too.</li>
+  <li>Click <span class="ui">Create N assignments</span>.</li>
+</ol>
+<p>After assigning, <b>each reportee gets one email</b> listing their new trainings. A message at the bottom right confirms whether the emails went out. The training is assigned even if an email fails.</p>
+<div class="note warn"><span class="h">Links are checked</span>Material, reference and part links must be real web addresses (for example <code>https://…</code> or <code>docs.google.com/…</code>). Free text in a link box shows <i>"Enter a valid link"</i> and blocks saving.</div>
+
+<h2>7. Editing and deleting assigned trainings</h2>
+<ul>
+  <li><b>Edit:</b> open a training (from a reportee's card → <span class="ui">View all</span>, or any list) and click <span class="ui">Edit</span> to change the name, category, link, mode, trainer, priority or dates. Parts can't be changed once a training is assigned. To change them, delete the training and assign it again.</li>
+  <li><b>Delete:</b> click <span class="ui">Delete</span> in the training details, or the bin icon next to a training in a reportee's list (Dashboard → a reportee's card → <span class="ui">View all</span>). This removes it together with any notes and approvals, so use it for trainings added by mistake or for demo purposes.</li>
+</ul>
+<p>Only you (their reporting manager) and HR can delete a reportee's training. Reportees can't, not even for trainings they assigned to themselves.</p>
+
+<h2>8. Approvals</h2>
+<p>When a reportee marks a training (or a part) as done, it appears under <span class="ui">Approvals</span> with their notes and outcome links.</p>
+<ul>
+  <li><span class="ui">Approve</span>: marks it complete and adds it to the Knowledge Hub. You can add optional remarks, which the reportee sees.</li>
+  <li><span class="ui">Send Back</span>: returns it for changes. Remarks are required so the reportee knows what to fix. They correct it and resubmit.</li>
+</ul>
+<p>Multi-part trainings are approved part by part. The training is complete when every part is approved.</p>
+
+<h2>9. Dashboard</h2>
+<h3>Top cards</h3>
+<p><b>Team Members</b>, <b>Training Units</b> (a multi-part training counts as one unit per part), <b>Completion</b> (percentage of units approved) and <b>Overdue</b>. Click any card to see the list behind it.</p>
+<h3>Progress trends</h3>
+<p>Switch between <span class="ui">Weekly</span> (last 12 weeks) and <span class="ui">Monthly</span> (months of the selected FY):</p>
+<ul>
+  <li><b>Training activity</b>: units assigned, submitted for approval and completed in each period. Hover over the chart to see the numbers for a date.</li>
+  <li><b>Active learners</b>: how many of your reportees submitted a training in each period. Use it to see whether people are actually doing their trainings.</li>
+  <li><b>Where trainings stand</b>: how many trainings are not started, in progress, awaiting approval, sent back, completed or overdue.</li>
+  <li><b>Completion by category</b>: the share of assigned units completed in each training category.</li>
+</ul>
+<p>Every chart has a <span class="ui">Table</span> link that shows the same numbers as a table.</p>
+<h3>People</h3>
+<p>Each reportee has a card with their completion %, units done, pending and overdue counts, and an achievement badge:</p>
+<table>
+  <tr><th>Badge</th><th>Meaning</th></tr>
+  <tr><td>Star Performer</td><td>100% of their units completed. They also appear in the Star Performers banner.</td></tr>
+  <tr><td>On Track</td><td>70% or more completed and nothing overdue</td></tr>
+  <tr><td>In Progress</td><td>Working through their trainings</td></tr>
+  <tr><td>Needs Attention</td><td>One or more trainings overdue</td></tr>
+</table>
+<p>The <b>Year-wise Summary</b> table at the bottom shows each person's completed/total units for every FY, which is useful for appraisals. Click <span class="ui">Refresh</span> to load the latest data.</p>
+
+<h2>10. Reminders</h2>
+<ol>
+  <li>Set how often to nudge people: every X days while a training is pending, and more often once it's overdue. Click <span class="ui">Save Settings</span>.</li>
+  <li>The <b>reminder(s) due now</b> panel lists who is due a nudge. Click <span class="ui">Send &amp; Mark Reminded</span> to open a ready-written email in your mail app, or <span class="ui">Copy</span> to paste the text into Teams.</li>
+</ol>
+<p>Reminders are not sent automatically. They go out when you click the button.</p>
+
+<h2>11. Year-end tools</h2>
+<p>At the end of the financial year, go to <span class="ui">Team &amp; Settings</span> → <b>Year-End Tools</b>. Every unfinished training for the current FY is listed. For each one choose:</p>
+<ul>
+  <li><b>↪ Carry to FY [next year]</b>: the training moves to the new year, including its parts.</li>
+  <li><b>Discard</b>: it's archived and still visible when you look at the old FY.</li>
+</ul>
+<p>Then click <span class="ui">Finalize FY … → Start FY …</span>. New assignments go into the new year from then on.</p>
+
+<h2>12. Management report</h2>
+<p>Click <span class="ui">Export</span> on the Dashboard, tick one or more FYs, and download an Excel file with three sheets: <b>Team Summary</b> (completion % and achievement per person), <b>Training Details</b> (every training and part with status and dates) and <b>Learnings &amp; Notes</b> (approved notes and outcome links).</p>
+
+<h2>13. Knowledge Hub</h2>
+<p>A searchable library of your team's approved trainings, with notes and links. Search by training name or note text, and filter by FY.</p>
+
+<h2>14. Your own trainings</h2>
+<p>If you report to a senior manager, HR sets that up, and <b>My Trainings</b> then appears in your menu. There you work through your own trainings like any reportee: <span class="ui">Start</span>, <span class="ui">Mark as Done</span>, and <span class="ui">Assign to myself</span> to pick catalog trainings. Your senior manager approves them. You can also choose <span class="ui">Reportee</span> on the sign-in screen to go straight to My Trainings.</p>
+<p>You can't assign, edit, delete or approve your own trainings. Only your senior manager (or HR) can.</p>
+
+<h2>15. Frequently asked questions</h2>
+<div class="faq">
+  <h3>A reportee didn't get their invite.</h3>
+  <p>Ask them to check Junk / Other. Then click <span class="ui">Send setup link</span>. If email still doesn't arrive, copy the link Skillgo shows and send it on Teams.</p>
+  <h3>A reportee assigned a training to themselves. Do I need to do anything?</h3>
+  <p>No. You get an email telling you what they picked. It shows a <span class="tag green">Self-assigned</span> tag and you approve it as usual. If it isn't relevant, you can delete it.</p>
+  <h3>Can I change a training's parts after assigning it?</h3>
+  <p>No. Delete it and assign it again with the right parts.</p>
+  <h3>Someone is moving to another team.</h3>
+  <p>Ask HR to change their reporting manager on the Users page. Their trainings move with them.</p>
+  <h3>I discarded a training by mistake at year-end.</h3>
+  <p>Discarded trainings are archived, not deleted. Assign the training again from the catalog.</p>
+</div>
+</body></html>
