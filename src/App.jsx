@@ -622,7 +622,7 @@ function Dashboard({ reportees, trainings, requests = [], onAdd, onBulk, onDelet
 
   const stats = [
     { key: "members", label: "Team Members", value: reportees.length, note: "active", Icon: Users },
-    { key: "units", label: "Training Units", value: totalU, note: `${fyT.length} trainings`, Icon: Package },
+    { key: "units", label: "Trainings", value: fyT.length, note: totalU !== fyT.length ? `${totalU} units incl. parts` : "assigned", Icon: Package },
     { key: "completion", label: "Completion", value: `${pct}%`, note: `${doneU}/${totalU} units`, Icon: Target },
     { key: "overdue", label: "Overdue", value: overdueList.length, note: "need action", Icon: Clock, tone: overdueList.length ? "alert" : undefined },
   ];
@@ -699,7 +699,7 @@ function Dashboard({ reportees, trainings, requests = [], onAdd, onBulk, onDelet
                         <span className="font-semibold text-[14.5px] truncate">{u.full_name}</span>
                         {ach && <AchBadge level={ach} />}
                       </div>
-                      <div className="text-xs text-muted-foreground mt-0.5">{doneUU}/{totalUU} units done</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">{done.length}/{ut.length} trainings done{totalUU !== ut.length && ` · ${doneUU}/${totalUU} units`}</div>
                     </div>
                     <div className={cn("text-lg font-bold tracking-tight", tone)}>{up}%</div>
                   </div>
@@ -753,9 +753,10 @@ function Dashboard({ reportees, trainings, requests = [], onAdd, onBulk, onDelet
                     </div>
                   </td>
                   {fyList.map(fy => {
-                    const utt = trainings.filter(t => t.assigned_to === u.id && t.fy === fy);
-                    const tU = utt.reduce((s, t) => s + getUnits(t).total, 0);
-                    const dU = utt.reduce((s, t) => s + getUnits(t).done, 0);
+                    // Completed / assigned trainings (not units) for that FY.
+                    const utt = trainings.filter(t => t.assigned_to === u.id && t.fy === fy && t.status !== "discarded");
+                    const tU = utt.length;
+                    const dU = utt.filter(t => getEffStatus(t) === "approved").length;
                     if (!tU) return <td key={fy} className="text-center px-3 py-3 text-muted-foreground/40">—</td>;
                     return <td key={fy} className="text-center px-3 py-3"><span className={cn("font-semibold", dU === tU ? "text-emerald-600" : "")}>{dU}/{tU}</span></td>;
                   })}
@@ -940,6 +941,7 @@ function MyTrainings({ trainings, requests, onRequestApproval, onDetail, onStart
   const activeT = fyT.filter(t => t.status !== "discarded");
   const totalU = activeT.reduce((s, t) => s + getUnits(t).total, 0);
   const doneU = activeT.reduce((s, t) => s + getUnits(t).done, 0);
+  const doneT = activeT.filter(t => getEffStatus(t) === "approved").length;
   const filters = [["all", "All"], ["pending", "Pending"], ["in-progress", "In Progress"], ["overdue", "Overdue"], ["completed", "Completed"]];
 
   return (
@@ -947,7 +949,7 @@ function MyTrainings({ trainings, requests, onRequestApproval, onDetail, onStart
       <div className="flex items-start justify-between gap-4 flex-wrap mb-7">
         <div>
           <h1 className="text-[23px] sm:text-[25px] font-bold tracking-[-0.025em] leading-tight text-foreground">My Trainings</h1>
-          <p className="text-[12.5px] text-muted-foreground mt-1.5">{doneU}/{totalU} units completed in FY {fyFilter}</p>
+          <p className="text-[12.5px] text-muted-foreground mt-1.5">{doneT}/{activeT.length} trainings completed in FY {fyFilter}{totalU !== activeT.length && ` · ${doneU}/${totalU} units (each part counts as a unit)`}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           <Select value={fyFilter} onValueChange={setFyFilter}>
@@ -4135,8 +4137,8 @@ svg.lucide{display:block;flex-shrink:0}
   const teamIds = new Set(reportees.map(r => r.id));
   const teamT = isManager ? trainings.filter(t => teamIds.has(t.assigned_to)) : [];
   const myAFY = myT.filter(t => t.fy === fyFilterM && t.status !== "discarded");
-  const myDone = myAFY.reduce((s, t) => s + getUnits(t).done, 0);
-  const myTotal = myAFY.reduce((s, t) => s + getUnits(t).total, 0);
+  const myDone = myAFY.filter(t => getEffStatus(t) === "approved").length;
+  const myTotal = myAFY.length;
   const allFYs = [...new Set([...(isManager ? [currentFY] : []), ...trainings.map(t => t.fy)])].filter(Boolean).sort().reverse();
 
   return (
