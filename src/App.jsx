@@ -1315,7 +1315,9 @@ function DetailModal({ training, part: focusPart, reportees, requests, onClose, 
 
         <div>
           <div className="text-[13px] font-bold mb-2.5">Training Material</div>
-          <LinkRow link={{ url: training.training_link, title: "Training material" }} theme="amber" />
+          {training.training_link
+            ? <LinkRow link={{ url: training.training_link, title: "Training material" }} theme="amber" />
+            : <p className="text-[13px] text-muted-foreground italic">No material link was added for this training.</p>}
         </div>
         {resources.length > 0 && (
           <div>
@@ -1550,7 +1552,7 @@ function TrainingFields({ form, setForm, categories, showParts = true, partsLock
         <Input type="url" value={form.training_link} onChange={e => set("training_link", e.target.value)} placeholder="https://..." aria-invalid={urlInvalid(form.training_link)}
           className={cn(urlInvalid(form.training_link) && "border-rose-300 focus-visible:border-rose-400 focus-visible:ring-rose-100")} />
         {urlInvalid(form.training_link) && <FormError className="text-[12px]">{URL_HINT}</FormError>}
-        <p className="text-xs text-muted-foreground">{linkRequired ? "Mandatory — the reportee needs this before requesting approval." : "Required when this training is assigned to someone."}</p>
+        <p className="text-xs text-muted-foreground">{linkRequired ? "Mandatory — the reportee needs this before requesting approval." : "Optional — study material shown to the reportee, if you have one."}</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1.5">
@@ -1673,7 +1675,7 @@ function AssignModal({ reportees, categories, catalog, currentFY, initialCatalog
     const c = catalog.find(x => x.id === id);
     setForm(c ? formFromTemplate(c) : emptyTrainingForm());
   };
-  const ok = memberIds.length > 0 && trainingFormValid(form);
+  const ok = memberIds.length > 0 && trainingFormValid(form, false);
 
   const submit = async () => {
     if (!ok) return;
@@ -1708,7 +1710,7 @@ function AssignModal({ reportees, categories, catalog, currentFY, initialCatalog
           </Select>
         </div>
 
-        <TrainingFields form={form} setForm={setForm} categories={categories} />
+        <TrainingFields form={form} setForm={setForm} categories={categories} linkRequired={false} />
         <DateFields expectedEnd={expectedEnd} setExpectedEnd={setExpectedEnd} dueDate={dueDate} setDueDate={setDueDate} />
         <ReporteePicker reportees={reportees} memberIds={memberIds} setMemberIds={setMemberIds} onGoToSettings={onGoToSettings} />
 
@@ -1743,12 +1745,12 @@ function BulkAssignModal({ reportees, catalog, currentFY, initialIds, onSubmit, 
   const shown = catalog.filter(c => c.name.toLowerCase().includes(search.trim().toLowerCase()));
   const total = itemIds.length * memberIds.length;
   const needLink = catalog.filter(c => itemIds.includes(c.id) && !c.training_link);
-  const ok = itemIds.length > 0 && memberIds.length > 0 && needLink.every(c => isValidUrl(links[c.id]));
+  const ok = itemIds.length > 0 && memberIds.length > 0 && needLink.every(c => !urlInvalid(links[c.id]));
 
   const submit = async () => {
     setBusy(true); setErr("");
     try {
-      const items = catalog.filter(c => itemIds.includes(c.id)).map(c => c.training_link ? c : { ...c, training_link: normUrl(links[c.id]) });
+      const items = catalog.filter(c => itemIds.includes(c.id)).map(c => c.training_link ? c : { ...c, training_link: normUrl(links[c.id]) || null });
       await onSubmit({ items, memberIds, expectedEnd, dueDate: dueDate || null });
     }
     catch (e) { setErr(e.message); }
@@ -1791,8 +1793,8 @@ function BulkAssignModal({ reportees, catalog, currentFY, initialIds, onSubmit, 
 
         {needLink.length > 0 && (
           <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-2">
-            <div className="text-[13px] font-semibold text-amber-800">Training material link needed <span className="text-rose-500">*</span></div>
-            <p className="text-xs text-amber-800">These catalog trainings don't have a link yet — it's mandatory before assigning. It will also be saved to the catalog.</p>
+            <div className="text-[13px] font-semibold text-amber-800">Training material link <span className="font-normal">(optional)</span></div>
+            <p className="text-xs text-amber-800">These catalog trainings don't have a link yet. Add one if you have it — it's shown to reportees and saved to the catalog too.</p>
             {needLink.map(c => (
               <div key={c.id} className="flex items-center gap-2">
                 <span className="text-[12.5px] font-medium w-44 shrink-0 truncate" title={c.name}>{c.name}</span>
@@ -1825,7 +1827,7 @@ function SelfAssignModal({ catalog, myTrainings, onSubmit, onClose }) {
   const [err, setErr] = useState("");
   // Already in my list and not finished → can't pick again.
   const active = new Set(myTrainings.filter(t => t.catalog_id && !["approved", "discarded"].includes(t.status)).map(t => t.catalog_id));
-  const blocked = c => !c.training_link ? "No material link yet — ask your manager" : active.has(c.id) ? "Already in your list" : null;
+  const blocked = c => active.has(c.id) ? "Already in your list" : null;
   const toggle = id => setItemIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
   const shown = catalog.filter(c => c.name.toLowerCase().includes(search.trim().toLowerCase()) || `${c.training_categories?.group_name} ${c.training_categories?.name}`.toLowerCase().includes(search.trim().toLowerCase()));
   const ok = itemIds.length > 0;
@@ -1927,7 +1929,7 @@ function EditTrainingModal({ training, categories, onSubmit, onClose }) {
   const [dueDate, setDueDate] = useState(training.due_date || "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const ok = trainingFormValid(form);
+  const ok = trainingFormValid(form, false);
   const submit = async () => {
     setBusy(true); setErr("");
     try { await onSubmit(training.id, { ...trainingFormPayload(form), expected_end_date: expectedEnd || null, due_date: dueDate || null }); }
@@ -1941,7 +1943,7 @@ function EditTrainingModal({ training, categories, onSubmit, onClose }) {
           <DialogTitle>Edit Training</DialogTitle>
           <DialogDescription>Changes apply to this reportee's assignment only.</DialogDescription>
         </DialogHeader>
-        <TrainingFields form={form} setForm={setForm} categories={categories} showParts={hasParts(training)} partsLocked="Parts can't be changed once assigned — delete and re-assign the training to change its parts." />
+        <TrainingFields form={form} setForm={setForm} categories={categories} linkRequired={false} showParts={hasParts(training)} partsLocked="Parts can't be changed once assigned — delete and re-assign the training to change its parts." />
         <DateFields expectedEnd={expectedEnd} setExpectedEnd={setExpectedEnd} dueDate={dueDate} setDueDate={setDueDate} />
         {err && <FormError>{err}</FormError>}
         <DialogFooter className="gap-2 sm:gap-2">
@@ -1957,7 +1959,7 @@ function EditTrainingModal({ training, categories, onSubmit, onClose }) {
 function CatalogItemModal({ item, categories, people = [], onSubmit, onClose }) {
   const [form, setForm] = useState(item ? formFromTemplate(item) : emptyTrainingForm());
   const [memberIds, setMemberIds] = useState([]);
-  const needsLink = memberIds.length > 0 && !form.training_link.trim();
+  const needsLink = false;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const submit = async () => {
@@ -1978,7 +1980,6 @@ function CatalogItemModal({ item, categories, people = [], onSubmit, onClose }) 
           <>
             <ReporteePicker reportees={people} memberIds={memberIds} setMemberIds={setMemberIds} label="Assign to" optional />
             <p className="text-xs text-muted-foreground -mt-2">Selected people get this training straight away (not started). They or their manager set the start and end dates when starting it.</p>
-            {needsLink && <FormError className="text-[12px]">Add the training material link to assign it now.</FormError>}
           </>
         )}
         {err && <FormError>{err}</FormError>}
@@ -2179,13 +2180,11 @@ function ImportModal({ categories, catalog, people = [], onImport, onClose }) {
     if (all.slice(0, i).some(x => x.include && norm(x.name) === norm(r.name))) errors.push("duplicate in sheet");
     else if (inCatalog) {
       if (!assigning) errors.push("already in catalog — pick people below to assign it");
-      else if (!inCatalog.training_link) errors.push("already in catalog without a link — can't assign");
       else notes.push("already in catalog — will be assigned");
     }
     if (!inCatalog) {
       if (!r.category_id) errors.push("pick a category");
       if (r.mode === "face_to_face" && !r.trainer) errors.push("trainer missing");
-      if (assigning && !r.training_link) notes.push("no link — added to catalog only, not assigned");
     }
     return { ...r, errors, notes, existingId: inCatalog?.id };
   });
@@ -3977,11 +3976,11 @@ svg.lucide{display:block;flex-shrink:0}
   // Assign catalog trainings to people (skips ones they already have open). Returns new ids.
   const assignFromCatalog = async (items, personIds, expectedEnd = null, dueDate = null) => {
     const ids = [];
-    for (const c of items.filter(x => x.training_link)) {
+    for (const c of items) {
       for (const assigned_to of personIds) {
         if (trainings.some(t => t.assigned_to === assigned_to && t.catalog_id === c.id && !["approved", "discarded"].includes(t.status))) continue;
         ids.push((await api.createTraining({
-          name: c.name, description: c.description || null, category_id: c.category_id, training_link: c.training_link, mode: c.mode,
+          name: c.name, description: c.description || null, category_id: c.category_id, training_link: c.training_link || null, mode: c.mode,
           trainer: c.trainer, priority: c.priority, resources: c.resources || [],
           expected_end_date: expectedEnd || null, due_date: dueDate || null, fy: currentFY, status: "pending",
           catalog_id: c.id, assigned_to,
@@ -3995,7 +3994,7 @@ svg.lucide{display:block;flex-shrink:0}
     const ids = [];
     for (const c of items) {
       // Link entered during bulk assign → keep it on the catalog entry too.
-      if (!catalog.find(x => x.id === c.id)?.training_link) await api.saveCatalogItem({ id: c.id, training_link: c.training_link });
+      if (c.training_link && !catalog.find(x => x.id === c.id)?.training_link) await api.saveCatalogItem({ id: c.id, training_link: c.training_link });
       for (const assigned_to of memberIds) {
         ids.push((await api.createTraining({
           name: c.name, description: c.description || null, category_id: c.category_id, training_link: c.training_link, mode: c.mode,
