@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   LayoutDashboard, Lightbulb, Library, Bell, Settings as SettingsIcon,
   BookOpen, LogOut, Plus, RefreshCw, Download, Search, Link2, X,
@@ -61,6 +61,17 @@ const fmtDate   = d => { if(!d) return ""; try { return new Date(d+"T00:00:00").
 const isOverdue = d => d && new Date(d+"T00:00:00") < new Date(new Date().toDateString());
 const daysSince = d => { if(!d) return Infinity; return Math.floor((new Date(new Date().toDateString())-new Date(d+"T00:00:00"))/86400000); };
 const cleanLinks= arr => (arr||[]).filter(l=>l&&l.url&&l.url.trim());
+// Links must be real web addresses ("https://…" or "docs.google.com/…"), not free text.
+const normUrl = u => { const s = (u || "").trim(); return !s || /^https?:\/\//i.test(s) ? s : "https://" + s; };
+const isValidUrl = u => {
+  const s = normUrl(u);
+  if (!s || /\s/.test(s)) return false;
+  try { const x = new URL(s); return /^https?:$/.test(x.protocol) && /^[^.]+(\.[^.]+)*\.[a-z]{2,}$/i.test(x.hostname); } catch { return false; }
+};
+const urlInvalid = u => !!(u || "").trim() && !isValidUrl(u);           // typed something, but not a link
+const linksValid = arr => (arr || []).every(l => !urlInvalid(l?.url));
+const normLinks = arr => cleanLinks(arr).map(l => ({ ...l, url: normUrl(l.url) }));
+const URL_HINT = "Enter a valid link, e.g. https://example.com";
 // Ensure links open externally: add a scheme if the user typed a bare domain.
 const safeUrl = u => {
   const s = (u||"").trim();
@@ -82,6 +93,8 @@ const getUnits = t => {
   const parts = t.training_parts;
   return { done: parts.filter(p=>p.status==="approved").length, total: parts.length };
 };
+const isSelfAssigned = t => !!t.assigned_by && t.assigned_by === t.assigned_to;
+const SelfTag = () => <span className="text-[10.5px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-full px-1.5 py-px shrink-0">Self-assigned</span>;
 const partsLabel = t => { if(!hasParts(t)) return null; const {done,total}=getUnits(t); return `${done}/${total} Parts`; };
 
 const getAchievement = (user, fyTrainings) => {
@@ -259,12 +272,16 @@ function LinkListEditor({ links, setLinks, urlP = "https://...", titleP = "Link 
   return (
     <div className="space-y-2">
       {links.map((l, i) => (
-        <div key={i} className="flex gap-2">
-          <Input type="url" value={l.url} onChange={e => upd(i, "url", e.target.value)} placeholder={urlP} className="flex-[1.4]" />
-          <Input type="text" value={l.title} onChange={e => upd(i, "title", e.target.value)} placeholder={titleP} className="flex-1" />
-          <Button type="button" variant="ghost" size="icon" className="shrink-0 text-muted-foreground" onClick={() => setLinks(p => p.filter((_, idx) => idx !== i))}>
-            <X className="h-4 w-4" />
-          </Button>
+        <div key={i}>
+          <div className="flex gap-2">
+            <Input type="url" value={l.url} onChange={e => upd(i, "url", e.target.value)} placeholder={urlP} aria-invalid={urlInvalid(l.url)}
+              className={cn("flex-[1.4]", urlInvalid(l.url) && "border-rose-300 focus-visible:border-rose-400 focus-visible:ring-rose-100")} />
+            <Input type="text" value={l.title} onChange={e => upd(i, "title", e.target.value)} placeholder={titleP} className="flex-1" />
+            <Button type="button" variant="ghost" size="icon" className="shrink-0 text-muted-foreground" onClick={() => setLinks(p => p.filter((_, idx) => idx !== i))}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          {urlInvalid(l.url) && <FormError className="mt-1.5 text-[12px]">{URL_HINT}</FormError>}
         </div>
       ))}
       <Button type="button" variant="outline" size="sm" className="border-dashed text-muted-foreground" onClick={() => setLinks(p => [...p, { url: "", title: "" }])}>
@@ -587,7 +604,7 @@ function Sidebar({ profile, tab, setTab, onLogout, myDone, myTotal, trainings, c
 }
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
-function Dashboard({ reportees, trainings, onAdd, onBulk, onRefresh, refreshing, fyList, fyFilter, setFyFilter, onExport, onDetail }) {
+function Dashboard({ reportees, trainings, requests = [], onAdd, onBulk, onDeleteTraining, onRefresh, refreshing, fyList, fyFilter, setFyFilter, onExport, onDetail }) {
   const [drill, setDrill] = useState(null);
   const [memberModal, setMemberModal] = useState(null);
   const fyT = trainings.filter(t => t.fy === fyFilter && t.status !== "discarded");
@@ -648,6 +665,8 @@ function Dashboard({ reportees, trainings, onAdd, onBulk, onRefresh, refreshing,
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {stats.map(s => <StatCard key={s.key} label={s.label} value={s.value} note={s.note} Icon={s.Icon} tone={s.tone} onClick={() => setDrill(s.key)} />)}
       </div>
+
+      <ProgressCharts trainings={fyT} requests={requests.filter(r => fyT.some(t => t.id === r.training_id))} fy={fyFilter} peopleCount={reportees.length} />
 
       <SectionLabel>Individual Progress — FY {fyFilter}</SectionLabel>
       {reportees.length === 0 ? (
@@ -750,17 +769,18 @@ function Dashboard({ reportees, trainings, onAdd, onBulk, onRefresh, refreshing,
       <MemberTrainingsModal
         member={memberModal} onClose={() => setMemberModal(null)} fyFilter={fyFilter}
         trainings={fyT.filter(t => memberModal && t.assigned_to === memberModal.id)}
-        onDetail={onDetail}
+        onDetail={onDetail} onDelete={onDeleteTraining}
       />
     </div>
   );
 }
 
-function TrainingMiniRow({ t, who, whoColor, onDetail }) {
+function TrainingMiniRow({ t, who, whoColor, onDetail, onDelete }) {
   const status = getEffStatus(t);
   const StatusIcon = status === "approved" ? Check : status === "in_progress" ? CircleDot : Circle;
   return (
-    <button onClick={() => onDetail && onDetail(t, null)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted transition text-left">
+    <div className="flex items-center gap-1 rounded-lg hover:bg-muted transition">
+    <button onClick={() => onDetail && onDetail(t, null)} className="flex-1 min-w-0 flex items-center gap-3 px-3 py-2.5 text-left">
       <StatusIcon className={cn("h-4 w-4 shrink-0", status === "approved" ? "text-emerald-600" : status === "in_progress" ? "text-indigo-600" : "text-muted-foreground")} />
       <div className="flex-1 min-w-0">
         <div className="text-[13px] font-medium truncate">{t.name}</div>
@@ -769,9 +789,12 @@ function TrainingMiniRow({ t, who, whoColor, onDetail }) {
           {t.due_date && <span className={cn(isOverdue(t.due_date) && status !== "approved" && "text-rose-600")}>Due {fmtDate(t.due_date)}</span>}
         </div>
       </div>
+      {isSelfAssigned(t) && <SelfTag />}
       {partsLabel(t) && <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0">{partsLabel(t)}</span>}
       <StatusBadge status={status} dueDate={t.due_date} />
     </button>
+    {onDelete && <Button variant="ghost" size="icon" className="shrink-0 mr-1 text-muted-foreground hover:text-rose-600" title="Delete training" aria-label={`Delete ${t.name}`} onClick={() => onDelete(t)}><Trash2 className="h-4 w-4" /></Button>}
+    </div>
   );
 }
 
@@ -846,7 +869,9 @@ function DashboardDrill({ which, onClose, fyFilter, members, fyT, overdueList, u
   );
 }
 
-function MemberTrainingsModal({ member, onClose, fyFilter, trainings, onDetail }) {
+function MemberTrainingsModal({ member, onClose, fyFilter, trainings, onDetail, onDelete }) {
+  const [toDelete, setToDelete] = useState(null);
+  const [err, setErr] = useState("");
   if (!member) return null;
   const groups = [
     ["Overdue", trainings.filter(t => isOpenStatus(getEffStatus(t)) && isOverdue(t.due_date))],
@@ -869,17 +894,26 @@ function MemberTrainingsModal({ member, onClose, fyFilter, trainings, onDetail }
           : groups.map(([label, arr]) => (
             <div key={label}>
               <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 mt-1">{label} · {arr.length}</div>
-              <div className="space-y-0.5">{arr.map(t => <TrainingMiniRow key={t.id} t={t} onDetail={onDetail} />)}</div>
+              <div className="space-y-0.5">{arr.map(t => <TrainingMiniRow key={t.id} t={t} onDetail={onDetail} onDelete={onDelete ? setToDelete : null} />)}</div>
             </div>
           ))}
+        {err && <FormError>{err}</FormError>}
         <DialogFooter><Button variant="outline" className="w-full" onClick={onClose}>Close</Button></DialogFooter>
       </ModalContent>
+      <ConfirmDialog
+        open={!!toDelete} danger
+        title={`Delete "${toDelete?.name}"?`}
+        body={`This removes the training from ${member.full_name}'s list, including any submitted notes and approvals. This can't be undone.`}
+        confirmLabel="Delete training"
+        onConfirm={async () => { const t = toDelete; setToDelete(null); setErr(""); try { await onDelete(t); } catch (e) { setErr(e.message); } }}
+        onCancel={() => setToDelete(null)}
+      />
     </Dialog>
   );
 }
 
 // ── MY TRAININGS (reportee) ────────────────────────────────────────────────────
-function MyTrainings({ trainings, requests, onRequestApproval, onDetail, onStart, onProgress, fyList, fyFilter, setFyFilter }) {
+function MyTrainings({ trainings, requests, onRequestApproval, onDetail, onStart, onProgress, onSelfAssign, fyList, fyFilter, setFyFilter }) {
   const [filter, setFilter] = useState("all");
   const [busyId, setBusyId] = useState(null);
   const [err, setErr] = useState("");
@@ -909,10 +943,13 @@ function MyTrainings({ trainings, requests, onRequestApproval, onDetail, onStart
           <h1 className="text-[23px] sm:text-[25px] font-bold tracking-[-0.025em] leading-tight text-foreground">My Trainings</h1>
           <p className="text-[12.5px] text-muted-foreground mt-1.5">{doneU}/{totalU} units completed in FY {fyFilter}</p>
         </div>
-        <Select value={fyFilter} onValueChange={setFyFilter}>
-          <SelectTrigger className="w-[136px]"><SelectValue /></SelectTrigger>
-          <SelectContent>{fyList.map(fy => <SelectItem key={fy} value={fy}>FY {fy}</SelectItem>)}</SelectContent>
-        </Select>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <Select value={fyFilter} onValueChange={setFyFilter}>
+            <SelectTrigger className="w-[136px]"><SelectValue /></SelectTrigger>
+            <SelectContent>{fyList.map(fy => <SelectItem key={fy} value={fy}>FY {fy}</SelectItem>)}</SelectContent>
+          </Select>
+          {onSelfAssign && <Button size="sm" onClick={onSelfAssign}><Plus className="h-4 w-4 mr-1.5" />Assign to myself</Button>}
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2 mb-4">
@@ -942,6 +979,7 @@ function MyTrainings({ trainings, requests, onRequestApproval, onDetail, onStart
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold text-sm">{t.name}</span>
                     {t.carried_from_fy && <FYBadge fy={`↪ ${t.carried_from_fy}`} />}
+                    {isSelfAssigned(t) && <SelfTag />}
                     {isM && <span className="bg-indigo-100 text-indigo-700 text-[11px] font-bold px-2 py-0.5 rounded-full">{pd}/{pt} Parts</span>}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1 flex gap-3 flex-wrap">
@@ -1327,7 +1365,7 @@ function DetailModal({ training, part: focusPart, reportees, requests, onClose, 
 function ApprovalRequestModal({ training, part, requests, onSubmit, onClose }) {
   const [notes, setNotes] = useState(""); const [outcomes, setOutcomes] = useState([{ url: "", title: "" }]);
   const [busy, setBusy] = useState(false);
-  const ok = notes.trim().length > 0 && cleanLinks(outcomes).length > 0;
+  const ok = notes.trim().length > 0 && cleanLinks(outcomes).length > 0 && linksValid(outcomes);
   const partsList = sortedParts(training);
   const partIdx = part ? partsList.findIndex(p => p.id === part.id) : -1;
   const isResubmit = (part ? part.status : training.status) === "sent_back";
@@ -1337,7 +1375,7 @@ function ApprovalRequestModal({ training, part, requests, onSubmit, onClose }) {
   const submit = async () => {
     if (!ok) return;
     setBusy(true);
-    try { await onSubmit(training.id, part?.id || null, notes.trim(), cleanLinks(outcomes)); }
+    try { await onSubmit(training.id, part?.id || null, notes.trim(), normLinks(outcomes)); }
     finally { setBusy(false); }
   };
 
@@ -1470,13 +1508,14 @@ const formFromTemplate = t => ({
   parts: (t.parts || []).map(p => ({ id: uid("p"), title: p.title || "", part_link: p.part_link || "" })),
 });
 // The material link is mandatory on an assigned training; catalog entries may leave it for later.
-const trainingFormValid = (f, linkRequired = true) => f.name.trim() && f.category_id && (!linkRequired || f.training_link.trim()) && (f.mode !== "face_to_face" || f.trainer.trim());
+const trainingFormValid = (f, linkRequired = true) => f.name.trim() && f.category_id && (!linkRequired || f.training_link.trim()) && (f.mode !== "face_to_face" || f.trainer.trim())
+  && !urlInvalid(f.training_link) && linksValid(f.resources) && f.parts.every(p => !urlInvalid(p.part_link));
 const trainingFormPayload = f => ({
-  name: f.name.trim(), description: f.description.trim() || null, category_id: f.category_id, training_link: f.training_link.trim() || null,
+  name: f.name.trim(), description: f.description.trim() || null, category_id: f.category_id, training_link: normUrl(f.training_link) || null,
   mode: f.mode, trainer: f.mode === "face_to_face" ? f.trainer.trim() : null,
-  priority: f.priority, resources: cleanLinks(f.resources),
+  priority: f.priority, resources: normLinks(f.resources),
 });
-const formParts = f => f.parts.filter(p => p.title.trim()).map(p => ({ title: p.title.trim(), part_link: p.part_link.trim() || null }));
+const formParts = f => f.parts.filter(p => p.title.trim()).map(p => ({ title: p.title.trim(), part_link: normUrl(p.part_link) || null }));
 
 function TrainingFields({ form, setForm, categories, showParts = true, partsLocked, linkRequired = true }) {
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
@@ -1499,7 +1538,9 @@ function TrainingFields({ form, setForm, categories, showParts = true, partsLock
       </div>
       <div className="space-y-1.5">
         <Label>Training Material Link {linkRequired ? <span className="text-rose-500">*</span> : <span className="text-muted-foreground font-normal">(can be added later)</span>}</Label>
-        <Input type="url" value={form.training_link} onChange={e => set("training_link", e.target.value)} placeholder="https://..." />
+        <Input type="url" value={form.training_link} onChange={e => set("training_link", e.target.value)} placeholder="https://..." aria-invalid={urlInvalid(form.training_link)}
+          className={cn(urlInvalid(form.training_link) && "border-rose-300 focus-visible:border-rose-400 focus-visible:ring-rose-100")} />
+        {urlInvalid(form.training_link) && <FormError className="text-[12px]">{URL_HINT}</FormError>}
         <p className="text-xs text-muted-foreground">{linkRequired ? "Mandatory — the reportee needs this before requesting approval." : "Required when this training is assigned to someone."}</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1538,11 +1579,15 @@ function TrainingFields({ form, setForm, categories, showParts = true, partsLock
               <p className="text-xs text-muted-foreground mb-3.5">Break it into parts if needed — the reportee requests approval part by part.</p>
               <div className="space-y-2">
                 {form.parts.map((p, i) => (
-                  <div key={p.id} className="flex gap-2 items-start">
-                    <PartDot n={i + 1} status="pending" />
-                    <Input value={p.title} onChange={e => updPart(p.id, "title", e.target.value)} placeholder={`Part ${i + 1} name`} className="flex-1" />
-                    <Input value={p.part_link} onChange={e => updPart(p.id, "part_link", e.target.value)} placeholder="Link (optional)" className="flex-1" />
-                    <Button type="button" variant="ghost" size="icon" className="shrink-0 text-muted-foreground" onClick={() => rmPart(p.id)}><X className="h-4 w-4" /></Button>
+                  <div key={p.id}>
+                    <div className="flex gap-2 items-start">
+                      <PartDot n={i + 1} status="pending" />
+                      <Input value={p.title} onChange={e => updPart(p.id, "title", e.target.value)} placeholder={`Part ${i + 1} name`} className="flex-1" />
+                      <Input type="url" value={p.part_link} onChange={e => updPart(p.id, "part_link", e.target.value)} placeholder="Link (optional)" aria-invalid={urlInvalid(p.part_link)}
+                        className={cn("flex-1", urlInvalid(p.part_link) && "border-rose-300")} />
+                      <Button type="button" variant="ghost" size="icon" className="shrink-0 text-muted-foreground" onClick={() => rmPart(p.id)}><X className="h-4 w-4" /></Button>
+                    </div>
+                    {urlInvalid(p.part_link) && <FormError className="mt-1.5 ml-8 text-[12px]">{URL_HINT}</FormError>}
                   </div>
                 ))}
                 <Button type="button" variant="outline" size="sm" className="border-dashed text-muted-foreground" onClick={addPart}><Plus className="h-3.5 w-3.5 mr-1" />Add Part</Button>
@@ -1686,12 +1731,12 @@ function BulkAssignModal({ reportees, catalog, currentFY, initialIds, onSubmit, 
   const shown = catalog.filter(c => c.name.toLowerCase().includes(search.trim().toLowerCase()));
   const total = itemIds.length * memberIds.length;
   const needLink = catalog.filter(c => itemIds.includes(c.id) && !c.training_link);
-  const ok = itemIds.length > 0 && memberIds.length > 0 && expectedEnd && needLink.every(c => (links[c.id] || "").trim());
+  const ok = itemIds.length > 0 && memberIds.length > 0 && expectedEnd && needLink.every(c => isValidUrl(links[c.id]));
 
   const submit = async () => {
     setBusy(true); setErr("");
     try {
-      const items = catalog.filter(c => itemIds.includes(c.id)).map(c => c.training_link ? c : { ...c, training_link: links[c.id].trim() });
+      const items = catalog.filter(c => itemIds.includes(c.id)).map(c => c.training_link ? c : { ...c, training_link: normUrl(links[c.id]) });
       await onSubmit({ items, memberIds, expectedEnd, dueDate: dueDate || null });
     }
     catch (e) { setErr(e.message); }
@@ -1739,7 +1784,8 @@ function BulkAssignModal({ reportees, catalog, currentFY, initialIds, onSubmit, 
             {needLink.map(c => (
               <div key={c.id} className="flex items-center gap-2">
                 <span className="text-[12.5px] font-medium w-44 shrink-0 truncate" title={c.name}>{c.name}</span>
-                <Input type="url" value={links[c.id] || ""} onChange={e => setLinks(p => ({ ...p, [c.id]: e.target.value }))} placeholder="https://..." className="h-8" />
+                <Input type="url" value={links[c.id] || ""} onChange={e => setLinks(p => ({ ...p, [c.id]: e.target.value }))} placeholder="https://..." aria-invalid={urlInvalid(links[c.id])}
+                  className={cn("h-8", urlInvalid(links[c.id]) && "border-rose-300")} />
               </div>
             ))}
           </div>
@@ -1751,6 +1797,77 @@ function BulkAssignModal({ reportees, catalog, currentFY, initialIds, onSubmit, 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
           <Button className="flex-[2]" disabled={!ok || busy} onClick={submit}>{busy ? "Assigning…" : total ? `Create ${total} assignment${total > 1 ? "s" : ""}` : "Assign"}</Button>
+        </DialogFooter>
+      </ModalContent>
+    </Dialog>
+  );
+}
+
+// ── ASSIGN TO MYSELF (reportee picks catalog trainings) ────────────────────────
+function SelfAssignModal({ catalog, myTrainings, onSubmit, onClose }) {
+  const [itemIds, setItemIds] = useState([]);
+  const [expectedEnd, setExpectedEnd] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [search, setSearch] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  // Already in my list and not finished → can't pick again.
+  const active = new Set(myTrainings.filter(t => t.catalog_id && !["approved", "discarded"].includes(t.status)).map(t => t.catalog_id));
+  const blocked = c => !c.training_link ? "No material link yet — ask your manager" : active.has(c.id) ? "Already in your list" : null;
+  const toggle = id => setItemIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  const shown = catalog.filter(c => c.name.toLowerCase().includes(search.trim().toLowerCase()) || `${c.training_categories?.group_name} ${c.training_categories?.name}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const ok = itemIds.length > 0 && expectedEnd;
+
+  const submit = async () => {
+    setBusy(true); setErr("");
+    try { await onSubmit({ items: catalog.filter(c => itemIds.includes(c.id)), expectedEnd, dueDate: dueDate || null }); }
+    catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <ModalContent size="xl">
+        <DialogHeader>
+          <DialogTitle>Assign trainings to myself</DialogTitle>
+          <DialogDescription>Pick one or more trainings from the catalog. Your reporting manager is notified by email, and approves completion as usual.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          <Label>Trainings <span className="text-rose-500">*</span> {itemIds.length > 0 && <span className="text-muted-foreground font-normal">· {itemIds.length} selected</span>}</Label>
+          {catalog.length === 0 ? (
+            <Notice tone="warning">The Training Catalog is empty — ask your manager or HR to add trainings.</Notice>
+          ) : (
+            <>
+              <div className="relative">
+                <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or category..." className="pl-9" />
+              </div>
+              <div className="border rounded-lg divide-y max-h-72 overflow-y-auto scroll-quiet">
+                {shown.map(c => {
+                  const why = blocked(c);
+                  return (
+                    <label key={c.id} className={cn("flex items-center gap-3 px-3 py-2.5 transition", why ? "opacity-55 cursor-not-allowed" : "cursor-pointer hover:bg-muted")}>
+                      <Checkbox checked={itemIds.includes(c.id)} disabled={!!why} onCheckedChange={() => toggle(c.id)} />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[13px] font-medium truncate">{c.name}</div>
+                        <div className="text-[11px] text-muted-foreground truncate">
+                          {c.training_categories ? `${c.training_categories.group_name} · ${c.training_categories.name}` : "No category"} · {MODE_OPTIONS.find(m => m.value === c.mode)?.label} · <span className="capitalize">{c.priority}</span>{(c.parts || []).length ? ` · ${c.parts.length} parts` : ""}
+                        </div>
+                        {why && <div className="text-[11px] text-amber-700 mt-0.5">{why}</div>}
+                      </div>
+                    </label>
+                  );
+                })}
+                {shown.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No matches.</p>}
+              </div>
+            </>
+          )}
+        </div>
+        <DateFields expectedEnd={expectedEnd} setExpectedEnd={setExpectedEnd} dueDate={dueDate} setDueDate={setDueDate} />
+        {err && <FormError>{err}</FormError>}
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button className="flex-[2]" disabled={!ok || busy} onClick={submit}>{busy ? "Assigning…" : itemIds.length > 1 ? `Assign ${itemIds.length} trainings to me` : "Assign to me"}</Button>
         </DialogFooter>
       </ModalContent>
     </Dialog>
@@ -1907,7 +2024,7 @@ function sheetGrid(XLSX, ws) {
 function parseTrainingSheet(grid, categories) {
   const EMPTY = { text: "", link: "" };
   const at = (row, i) => (i >= 0 && row[i]) || EMPTY;
-  const rowLink = row => row.map(c => c.link || (c.text.match(URL_RE) || [])[0] || "").find(Boolean) || "";
+  const rowLink = row => normUrl(row.map(c => c.link || (c.text.match(URL_RE) || [])[0] || "").find(v => isValidUrl(v)) || "");
   const hIdx = grid.findIndex(row => row.some(c => ["training topic", "trainings", "training name"].includes(norm(c.text))));
   if (hIdx < 0) return null;
   const header = grid[hIdx].map(c => norm(c.text));
@@ -1956,7 +2073,7 @@ function parseTrainingSheet(grid, categories) {
       out.push({
         name, description: detail.text || null, section: category ? `${category.group_name} › ${category.name}` : "",
         category_id: category?.id || guessCategory(categories, name, "")?.id || "",
-        training_link: detail.link || rowLink(row), mode,
+        training_link: (isValidUrl(detail.link) ? normUrl(detail.link) : "") || rowLink(row), mode,
         trainer: mode === "face_to_face" ? (src && norm(src) !== "self" ? src : null) : null,
         priority: priorityFrom(at(row, iPri).text),
       });
@@ -1975,7 +2092,7 @@ function parseTrainingSheet(grid, categories) {
     out.push({
       name, description: at(row, iDet).text || null, section: "",
       category_id: (findCategory(categories, at(row, iCat).text, categories.find(x => norm(x.group_name) === norm(at(row, iGroup).text))?.group_name) || guessCategory(categories, name, ""))?.id || "",
-      training_link: at(row, iLink).link || at(row, iLink).text || rowLink(row), mode,
+      training_link: normUrl([at(row, iLink).link, at(row, iLink).text, rowLink(row)].find(v => isValidUrl(v)) || ""), mode,
       trainer: mode === "face_to_face" ? at(row, iTrainer).text || null : null, priority: priorityFrom(at(row, iPri).text),
     });
   }
@@ -2306,8 +2423,9 @@ function InviteResult({ result, onDismiss }) {
   );
 }
 
-function Settings({ reportees, trainings, currentFY, onAddReportee, onToggleActive, onSendLink, onDelete, onFinalizeYear, onRefreshReportees }) {
+function Settings({ me, people, reportees, trainings, currentFY, onAddReportee, onAddReporteeBulk, onToggleActive, onSendLink, onDelete, onFinalizeYear, onRefreshReportees }) {
   const [toDelete, setToDelete] = useState(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [addForm, setAddForm] = useState(false);
   const [newU, setNewU] = useState({ full_name: "", email: "", color: COLORS[0] });
   const [creating, setCreating] = useState(false);
@@ -2345,12 +2463,15 @@ function Settings({ reportees, trainings, currentFY, onAddReportee, onToggleActi
 
       <InviteResult result={created} onDismiss={() => setCreated(null)} />
       <DeleteUserDialog user={toDelete} onCancel={() => setToDelete(null)} onConfirm={() => { const u = toDelete; setToDelete(null); rowAction(u.id, () => onDelete(u)); }} />
-
+      {bulkOpen && <BulkUsersModal mode="manager" people={people} me={me} onCreate={onAddReporteeBulk || onAddReportee} onDone={onRefreshReportees} onClose={() => setBulkOpen(false)} />}
       <Card className="mb-4">
         <CardContent className="p-6">
           <div className="flex items-center justify-between mb-4">
             <SectionLabel className="mb-0">Reportees</SectionLabel>
-            <Button size="sm" onClick={() => setAddForm(!addForm)}><Plus className="h-3.5 w-3.5 mr-1" />Add Reportee</Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}><Upload className="h-3.5 w-3.5 mr-1" />Bulk Add</Button>
+              <Button size="sm" onClick={() => setAddForm(!addForm)}><Plus className="h-3.5 w-3.5 mr-1" />Add Reportee</Button>
+            </div>
           </div>
           {addForm && (
             <div className="bg-muted/50 border rounded-xl p-4 mb-4">
@@ -2422,6 +2543,305 @@ function Settings({ reportees, trainings, currentFY, onAddReportee, onToggleActi
   );
 }
 
+// ── PROGRESS CHARTS (manager dashboard + HR overview) ─────────────────────────
+// Hand-rolled SVG (no chart library). Palette validated for CVD on white:
+// completed = green, assigned = blue, submitted = amber (amber < 3:1 → values
+// are also direct-labelled and every chart has a table view).
+const SERIES = {
+  completed: { label: "Completed", color: "#3d7a26" },
+  assigned:  { label: "Assigned",  color: "#2a78d6" },
+  submitted: { label: "Submitted", color: "#d98a1f" },
+};
+const CHART_INK = { grid: "#e9ede9", axis: "#8a948d", text: "#56615a" };
+
+const dayOf = s => { if (!s) return null; const d = new Date(String(s).length <= 10 ? s + "T00:00:00" : s); return isNaN(d) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate()); };
+const fyBounds = fy => { const y = parseInt(fy); return [new Date(y, 3, 1), new Date(y + 1, 2, 31)]; };
+const startOfWeek = d => { const x = new Date(d); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// Periods for the selected FY: its months up to today, or the last 12 weeks.
+function buildPeriods(fy, gran) {
+  const [start, end] = fyBounds(fy);
+  const today = new Date(new Date().toDateString());
+  const last = today < end ? today : end;
+  if (last < start) return [];
+  if (gran === "month") {
+    const out = [];
+    for (let d = new Date(start); d <= last; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+      out.push({ from: d, to: new Date(d.getFullYear(), d.getMonth() + 1, 0), label: MONTHS[d.getMonth()], long: `${MONTHS[d.getMonth()]} ${d.getFullYear()}` });
+    }
+    return out;
+  }
+  const out = [];
+  let w = startOfWeek(last);
+  for (let i = 0; i < 12 && w >= startOfWeek(start); i++) {
+    const to = new Date(w); to.setDate(to.getDate() + 6);
+    out.unshift({ from: new Date(w), to, label: `${w.getDate()} ${MONTHS[w.getMonth()]}`, long: `Week of ${w.getDate()} ${MONTHS[w.getMonth()]} ${w.getFullYear()}` });
+    w = new Date(w); w.setDate(w.getDate() - 7);
+  }
+  return out;
+}
+
+function buildActivity(trainings, requests, periods) {
+  const idx = d => { if (!d) return -1; return periods.findIndex(p => d >= p.from && d <= p.to); };
+  const z = () => periods.map(() => 0);
+  const assigned = z(), completed = z(), submitted = z();
+  const learners = periods.map(() => new Set());
+  for (const t of trainings) {
+    if (t.status === "discarded") continue;
+    const units = hasParts(t) ? t.training_parts.length : 1;
+    const a = idx(dayOf(t.assigned_date)); if (a >= 0) assigned[a] += units;
+    if (hasParts(t)) t.training_parts.forEach(p => { const i = p.status === "approved" ? idx(dayOf(p.completed_date)) : -1; if (i >= 0) completed[i]++; });
+    else if (t.status === "approved") { const i = idx(dayOf(t.completed_date)); if (i >= 0) completed[i]++; }
+  }
+  for (const r of requests) {
+    const i = idx(dayOf(r.created_at)); if (i < 0) continue;
+    submitted[i]++; learners[i].add(r.requested_by);
+  }
+  return { assigned, completed, submitted, learners: learners.map(s => s.size) };
+}
+
+const niceMax = v => { if (v <= 4) return 4; const p = Math.pow(10, Math.floor(Math.log10(v))); const n = v / p; return (n <= 2 ? 2 : n <= 5 ? 5 : 10) * p; };
+
+function useWidth(fallback = 640) {
+  const ref = useRef(null);
+  const [w, setW] = useState(fallback);
+  useEffect(() => {
+    if (!ref.current) return;
+    const ro = new ResizeObserver(([e]) => setW(Math.max(260, Math.round(e.contentRect.width))));
+    ro.observe(ref.current);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, w];
+}
+
+function ChartCard({ title, subtitle, children, table, legend }) {
+  const [asTable, setAsTable] = useState(false);
+  return (
+    <div className="rounded-xl border border-border bg-white p-5 min-w-0">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="min-w-0">
+          <div className="text-[13.5px] font-bold">{title}</div>
+          {subtitle && <div className="text-[11.5px] text-muted-foreground mt-0.5">{subtitle}</div>}
+        </div>
+        {table && <button type="button" onClick={() => setAsTable(v => !v)} className="text-[11.5px] font-semibold text-indigo-700 hover:underline shrink-0">{asTable ? "Chart" : "Table"}</button>}
+      </div>
+      {legend && !asTable && <div className="flex flex-wrap gap-x-4 gap-y-1 mb-2">{legend}</div>}
+      {asTable ? table : children}
+    </div>
+  );
+}
+
+function LegendItem({ color, label, line }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[11.5px] text-[#56615a]">
+      {line ? <span className="inline-block w-3.5 h-[2px] rounded" style={{ background: color }} /> : <span className="inline-block w-2.5 h-2.5 rounded-[3px]" style={{ background: color }} />}
+      {label}
+    </span>
+  );
+}
+
+function DataTable({ head, rows }) {
+  return (
+    <div className="overflow-x-auto max-h-[260px] overflow-y-auto scroll-quiet border rounded-lg">
+      <table className="w-full text-[12px]">
+        <thead className="bg-table-head sticky top-0"><tr>{head.map((h, i) => <th key={i} className={cn("px-3 py-2 font-semibold text-[#858d87]", i ? "text-right" : "text-left")}>{h}</th>)}</tr></thead>
+        <tbody>{rows.map((r, i) => <tr key={i} className="border-t">{r.map((v, j) => <td key={j} className={cn("px-3 py-1.5", j ? "text-right tabular-nums" : "")}>{v}</td>)}</tr>)}</tbody>
+      </table>
+    </div>
+  );
+}
+
+// Multi-series line chart with crosshair + tooltip (hover, focus + arrow keys).
+function TrendChart({ periods, series, height = 220 }) {
+  const [ref, W] = useWidth();
+  const [hi, setHi] = useState(null);
+  const pad = { l: 34, r: 40, t: 12, b: 26 };
+  const n = periods.length;
+  const max = niceMax(Math.max(1, ...series.flatMap(s => s.values)));
+  const x = i => pad.l + (n <= 1 ? (W - pad.l - pad.r) / 2 : i * (W - pad.l - pad.r) / (n - 1));
+  const y = v => pad.t + (height - pad.t - pad.b) * (1 - v / max);
+  const ticks = [0, max / 4, max / 2, (3 * max) / 4, max];
+  const every = Math.ceil(n / Math.max(1, Math.floor((W - pad.l - pad.r) / 56)));
+  const pick = e => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const px = e.clientX - r.left;
+    setHi(Math.max(0, Math.min(n - 1, Math.round((px - pad.l) / ((W - pad.l - pad.r) / Math.max(1, n - 1))))));
+  };
+  // End labels: skip ones that would collide (legend + tooltip still carry them).
+  const ends = series.map(s => ({ ...s, v: s.values[n - 1] ?? 0 })).sort((a, b) => b.v - a.v);
+  const placed = []; ends.forEach(s => { const yy = y(s.v); if (placed.every(p => Math.abs(p - yy) > 12)) { placed.push(yy); s.show = true; } });
+
+  return (
+    <div ref={ref} className="relative select-none">
+      <svg width={W} height={height} role="img" aria-label={`Trend of ${series.map(s => s.label).join(", ")} across ${n} periods`}
+        tabIndex={0} className="outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 rounded"
+        onPointerMove={pick} onPointerLeave={() => setHi(null)}
+        onFocus={() => setHi(h => h ?? n - 1)} onBlur={() => setHi(null)}
+        onKeyDown={e => { if (e.key === "ArrowLeft") setHi(h => Math.max(0, (h ?? n - 1) - 1)); if (e.key === "ArrowRight") setHi(h => Math.min(n - 1, (h ?? 0) + 1)); }}>
+        {ticks.map(t => (
+          <g key={t}>
+            <line x1={pad.l} x2={W - pad.r} y1={y(t)} y2={y(t)} stroke={CHART_INK.grid} strokeWidth="1" />
+            <text x={pad.l - 8} y={y(t) + 3.5} textAnchor="end" fontSize="10.5" fill={CHART_INK.axis} style={{ fontVariantNumeric: "tabular-nums" }}>{Math.round(t).toLocaleString("en-IN")}</text>
+          </g>
+        ))}
+        {periods.map((p, i) => (i % every === 0 || i === n - 1) && (
+          <text key={i} x={x(i)} y={height - 8} textAnchor="middle" fontSize="10.5" fill={CHART_INK.axis}>{p.label}</text>
+        ))}
+        {hi != null && <line x1={x(hi)} x2={x(hi)} y1={pad.t} y2={height - pad.b} stroke="#b9c4bc" strokeWidth="1" />}
+        {series.map(s => (
+          <g key={s.key}>
+            <polyline fill="none" stroke={s.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"
+              points={s.values.map((v, i) => `${x(i)},${y(v)}`).join(" ")} />
+            {n > 0 && <circle cx={x(n - 1)} cy={y(s.values[n - 1])} r="4" fill={s.color} stroke="#fff" strokeWidth="2" />}
+            {hi != null && <circle cx={x(hi)} cy={y(s.values[hi])} r="4" fill={s.color} stroke="#fff" strokeWidth="2" />}
+          </g>
+        ))}
+        {ends.filter(s => s.show).map(s => (
+          <text key={s.key} x={x(n - 1) + 8} y={y(s.v) + 3.5} fontSize="11" fontWeight="600" fill={CHART_INK.text}>{s.v}</text>
+        ))}
+      </svg>
+      {hi != null && (
+        <div className="pointer-events-none absolute top-1 z-10 rounded-lg border bg-white px-3 py-2 shadow-[0_8px_24px_rgba(20,32,25,0.12)] text-[11.5px] min-w-[140px]"
+          style={{ left: Math.min(Math.max(x(hi) + 12, 0), W - 160) }}>
+          <div className="text-[#858d87] mb-1">{periods[hi].long}</div>
+          {series.map(s => (
+            <div key={s.key} className="flex items-center gap-2 py-0.5">
+              <span className="inline-block w-3 h-[2px] rounded" style={{ background: s.color }} />
+              <span className="font-bold text-foreground tabular-nums">{s.values[hi]}</span>
+              <span className="text-[#6f7b73]">{s.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Single-series columns (e.g. active learners per period).
+function ColumnChart({ periods, values, color, unit, height = 220 }) {
+  const [ref, W] = useWidth(320);
+  const [hi, setHi] = useState(null);
+  const pad = { l: 28, r: 8, t: 18, b: 26 };
+  const n = periods.length;
+  const max = niceMax(Math.max(1, ...values));
+  const band = (W - pad.l - pad.r) / Math.max(1, n);
+  const bw = Math.min(24, band - 2);
+  const y = v => pad.t + (height - pad.t - pad.b) * (1 - v / max);
+  const every = Math.ceil(n / Math.max(1, Math.floor((W - pad.l - pad.r) / 44)));
+  const peak = values.indexOf(Math.max(...values));
+  return (
+    <div ref={ref} className="relative select-none">
+      <svg width={W} height={height} role="img" aria-label={`${unit} per period`}>
+        {[0, max / 2, max].map(t => (
+          <g key={t}>
+            <line x1={pad.l} x2={W - pad.r} y1={y(t)} y2={y(t)} stroke={CHART_INK.grid} strokeWidth="1" />
+            <text x={pad.l - 6} y={y(t) + 3.5} textAnchor="end" fontSize="10.5" fill={CHART_INK.axis}>{Math.round(t)}</text>
+          </g>
+        ))}
+        {values.map((v, i) => {
+          const cx = pad.l + band * i + band / 2, top = y(v), h = height - pad.b - top;
+          return (
+            <g key={i} tabIndex={0} className="outline-none" onPointerEnter={() => setHi(i)} onPointerLeave={() => setHi(null)} onFocus={() => setHi(i)} onBlur={() => setHi(null)}>
+              <rect x={pad.l + band * i} y={pad.t} width={band} height={height - pad.t - pad.b} fill="transparent" />
+              {v > 0 && <path d={`M${cx - bw / 2},${height - pad.b} V${top + 4} Q${cx - bw / 2},${top} ${cx - bw / 2 + 4},${top} H${cx + bw / 2 - 4} Q${cx + bw / 2},${top} ${cx + bw / 2},${top + 4} V${height - pad.b} Z`}
+                fill={color} opacity={hi == null || hi === i ? 1 : 0.55} />}
+              {(i === peak && v > 0) && <text x={cx} y={top - 5} textAnchor="middle" fontSize="11" fontWeight="600" fill={CHART_INK.text}>{v}</text>}
+              {(i % every === 0 || i === n - 1) && <text x={cx} y={height - 8} textAnchor="middle" fontSize="10.5" fill={CHART_INK.axis}>{periods[i].label}</text>}
+            </g>
+          );
+        })}
+      </svg>
+      {hi != null && (
+        <div className="pointer-events-none absolute top-1 z-10 rounded-lg border bg-white px-3 py-2 shadow-[0_8px_24px_rgba(20,32,25,0.12)] text-[11.5px]"
+          style={{ left: Math.min(Math.max(pad.l + band * hi + band / 2 + 10, 0), W - 150) }}>
+          <div className="text-[#858d87] mb-0.5">{periods[hi].long}</div>
+          <div><span className="font-bold text-foreground">{values[hi]}</span> <span className="text-[#6f7b73]">{unit}</span></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Horizontal bars, single hue, value at the tip.
+function BarList({ rows, color, format = v => v, max: fixedMax }) {
+  const max = fixedMax || Math.max(1, ...rows.map(r => r.value));
+  return (
+    <div className="space-y-2.5">
+      {rows.map(r => (
+        <div key={r.label} className="grid grid-cols-[minmax(92px,38%)_1fr] items-center gap-3" title={`${r.label}: ${format(r.value)}${r.note ? ` (${r.note})` : ""}`}>
+          <div className="text-[12px] text-[#39413b] truncate">{r.label}</div>
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="h-4 flex-1 min-w-0">
+              {r.value > 0 && <div className="h-4 rounded-r-[4px] transition-all duration-500" style={{ width: `${(r.value / max) * 100}%`, background: color }} />}
+            </div>
+            <span className="text-[12px] font-semibold tabular-nums text-foreground shrink-0 min-w-[34px] text-right">{format(r.value)}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProgressCharts({ trainings, requests, fy, peopleCount }) {
+  const [gran, setGran] = useState("month");
+  const periods = buildPeriods(fy, gran);
+  const act = buildActivity(trainings, requests, periods);
+  const series = ["completed", "assigned", "submitted"].map(k => ({ key: k, ...SERIES[k], values: act[k] }));
+  const c = statusCounts(trainings);
+  const statusRows = [
+    { label: "Not started", value: c.notStarted }, { label: "In progress", value: c.inProgress },
+    { label: "Awaiting approval", value: c.awaiting }, { label: "Sent back", value: c.sentBack },
+    { label: "Completed", value: c.completed }, { label: "Overdue", value: c.overdue },
+  ];
+  const byCat = {};
+  trainings.filter(t => t.status !== "discarded").forEach(t => {
+    const k = t.training_categories ? t.training_categories.name : "Uncategorised";
+    const u = getUnits(t); byCat[k] = byCat[k] || { done: 0, total: 0 }; byCat[k].done += u.done; byCat[k].total += u.total;
+  });
+  const catRows = Object.entries(byCat).map(([label, v]) => ({ label, value: Math.round(v.done / v.total * 100), note: `${v.done}/${v.total} units` })).sort((a, b) => b.value - a.value);
+  const periodWord = gran === "month" ? "month" : "week";
+  const learnersNow = act.learners[act.learners.length - 1] ?? 0;
+
+  if (!periods.length) return null;
+  return (
+    <div className="mb-8">
+      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+        <SectionLabel className="mb-0">Progress trends — FY {fy}</SectionLabel>
+        <div className="inline-flex rounded-lg border border-input bg-white p-0.5" role="group" aria-label="Period">
+          {[["week", "Weekly"], ["month", "Monthly"]].map(([g, l]) => (
+            <button key={g} type="button" aria-pressed={gran === g} onClick={() => setGran(g)}
+              className={cn("px-3 h-7 rounded-md text-[12px] font-semibold transition-colors", gran === g ? "bg-indigo-50 text-indigo-800" : "text-muted-foreground hover:text-foreground")}>{l}</button>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-4">
+        <div className="xl:col-span-2 min-w-0">
+          <ChartCard title="Training activity" subtitle={`Units assigned, submitted for approval and completed per ${periodWord}`}
+            legend={series.map(s => <LegendItem key={s.key} color={s.color} label={s.label} line />)}
+            table={<DataTable head={[gran === "month" ? "Month" : "Week", ...series.map(s => s.label)]} rows={periods.map((p, i) => [p.long, ...series.map(s => s.values[i])])} />}>
+            <TrendChart periods={periods} series={series} />
+          </ChartCard>
+        </div>
+        <ChartCard title="Active learners" subtitle={`People who submitted a training each ${periodWord} · ${learnersNow} of ${peopleCount} this ${periodWord}`}
+          table={<DataTable head={[gran === "month" ? "Month" : "Week", "Active learners"]} rows={periods.map((p, i) => [p.long, act.learners[i]])} />}>
+          <ColumnChart periods={periods} values={act.learners} color={SERIES.completed.color} unit="active learners" />
+        </ChartCard>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <ChartCard title="Where trainings stand" subtitle="Trainings by current status"
+          table={<DataTable head={["Status", "Trainings"]} rows={statusRows.map(r => [r.label, r.value])} />}>
+          <BarList rows={statusRows} color={SERIES.assigned.color} />
+        </ChartCard>
+        <ChartCard title="Completion by category" subtitle="Share of assigned units completed"
+          table={<DataTable head={["Category", "Completed", "Units"]} rows={catRows.map(r => [r.label, `${r.value}%`, r.note])} />}>
+          {catRows.length ? <BarList rows={catRows} color={SERIES.completed.color} format={v => `${v}%`} max={100} /> : <p className="text-[12.5px] text-muted-foreground py-6 text-center">No trainings assigned yet.</p>}
+        </ChartCard>
+      </div>
+    </div>
+  );
+}
+
 // ── OVERVIEW (admin / HR, read-only) ──────────────────────────────────────────
 // Org-wide picture: who has how many trainings, their status, and how each
 // manager is keeping up with approvals.
@@ -2442,7 +2862,7 @@ function statusCounts(ts) {
   return c;
 }
 
-function AdminOverview({ people, trainings, requests, onDetail, onExport, onRefresh, refreshing }) {
+function AdminOverview({ people, trainings, requests, onDetail, onExport, onRefresh, refreshing, onDeleteTraining }) {
   const [fy, setFy] = useState(getFY());
   const [mgrF, setMgrF] = useState("all");
   const [member, setMember] = useState(null);
@@ -2513,6 +2933,8 @@ function AdminOverview({ people, trainings, requests, onDetail, onExport, onRefr
         {stats.map(s => <StatCard key={s.label} label={s.label} value={s.value} note={s.note} Icon={s.Icon} tone={s.tone} />)}
       </div>
 
+      <ProgressCharts trainings={fyT} requests={fyReqs} fy={fy} peopleCount={reportees.length} />
+
       <SectionLabel>Managers — FY {fy}</SectionLabel>
       <Card className="overflow-hidden mb-8">
         <div className="overflow-x-auto">
@@ -2562,8 +2984,185 @@ function AdminOverview({ people, trainings, requests, onDetail, onExport, onRefr
       </Card>
 
       <MemberTrainingsModal member={member} onClose={() => setMember(null)} fyFilter={fy}
-        trainings={fyT.filter(t => member && t.assigned_to === member.id)} onDetail={onDetail} />
+        trainings={fyT.filter(t => member && t.assigned_to === member.id)} onDetail={onDetail} onDelete={onDeleteTraining} />
     </div>
+  );
+}
+
+// ── BULK ADD USERS (Excel / CSV) ──────────────────────────────────────────────
+// HR: any role, with the reporting manager given by email.
+// Manager: name + email only — everyone becomes their reportee.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const ROLE_FROM_TEXT = s => {
+  const n = norm(s);
+  if (!n || n === "reportee" || n === "employee" || n === "member") return "reportee";
+  if (/manager/.test(n)) return "reporting_manager";
+  if (/admin|hr/.test(n)) return "admin";
+  return null;
+};
+
+function BulkUsersModal({ mode, people, me, onCreate, onClose, onDone }) {
+  const isAdmin = mode === "admin";
+  const [rows, setRows] = useState(null);
+  const [fileName, setFileName] = useState("");
+  const [results, setResults] = useState(null); // { [email]: { ok, email_sent, invite_link, error } }
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [copied, setCopied] = useState(false);
+  const byEmail = new Map(people.map(p => [p.email.toLowerCase(), p]));
+
+  const downloadTemplate = () => {
+    const XLSX = window.XLSX; if (!XLSX) { setErr("Excel library is still loading — try again in a moment."); return; }
+    const head = isAdmin ? ["Full Name", "Email", "Role", "Reporting Manager Email"] : ["Full Name", "Email"];
+    const sample = isAdmin
+      ? [["Priya Shah", "priya.shah@o2h.com", "Reporting Manager", ""], ["Rahul Mehta", "rahul.mehta@o2h.com", "Reportee", "priya.shah@o2h.com"]]
+      : [["Rahul Mehta", "rahul.mehta@o2h.com"]];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([head, ...sample]), "Users");
+    if (isAdmin) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Role values"], ["Reportee"], ["Reporting Manager"], ["Admin / HR"], [], ["A reportee needs a Reporting Manager Email — an existing manager, or a manager added in this same sheet."]]), "Help");
+    XLSX.writeFile(wb, "Skillgo_Users_Template.xlsx");
+  };
+
+  const validate = list => {
+    const sheetEmails = new Map();
+    list.forEach(r => { if (r.email) sheetEmails.set(r.email, (sheetEmails.get(r.email) || 0) + 1); });
+    const sheetManagers = new Set(list.filter(r => r.role === "reporting_manager").map(r => r.email));
+    return list.map(r => {
+      const errors = [];
+      if (!r.full_name) errors.push("name missing");
+      if (!r.email) errors.push("email missing");
+      else if (!EMAIL_RE.test(r.email)) errors.push("invalid email");
+      else if (sheetEmails.get(r.email) > 1) errors.push("duplicate in sheet");
+      else if (byEmail.has(r.email)) errors.push("already a user");
+      if (isAdmin) {
+        if (!r.role) errors.push("unknown role");
+        if (r.role === "reportee" && !r.manager_email) errors.push("reporting manager email missing");
+        if (r.manager_email) {
+          const m = byEmail.get(r.manager_email);
+          if (r.manager_email === r.email) errors.push("can't report to themselves");
+          else if (!(m && m.role === "reporting_manager") && !sheetManagers.has(r.manager_email)) errors.push("reporting manager not found");
+        }
+      }
+      return { ...r, errors };
+    });
+  };
+
+  const onFile = async e => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setErr(""); setFileName(file.name); setRows(null); setResults(null);
+    try {
+      const XLSX = window.XLSX; if (!XLSX) throw new Error("Excel library is still loading — try again in a moment.");
+      const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
+      const pick = (r, ...keys) => { const k = Object.keys(r).find(k => keys.includes(norm(k))); return k ? String(r[k]).trim() : ""; };
+      const list = raw.map((r, i) => ({
+        rowNo: i + 2,
+        full_name: pick(r, "full name", "name", "employee name"),
+        email: pick(r, "email", "email address", "email id").toLowerCase(),
+        role: isAdmin ? ROLE_FROM_TEXT(pick(r, "role")) : "reportee",
+        manager_email: isAdmin ? pick(r, "reporting manager email", "manager email", "reporting manager").toLowerCase() : "",
+      })).filter(r => r.full_name || r.email);
+      if (!list.length) throw new Error("No users found. Use the template (columns: Full Name, Email" + (isAdmin ? ", Role, Reporting Manager Email" : "") + ").");
+      setRows(validate(list));
+    } catch (ex) { setErr(ex.message); }
+    e.target.value = "";
+  };
+
+  const ready = (rows || []).filter(r => !r.errors.length);
+
+  const doImport = async () => {
+    setBusy(true); setErr("");
+    const out = {};
+    const ids = new Map(people.map(p => [p.email.toLowerCase(), p.id]));
+    // Managers/admins first so reportees in the same sheet can point at them.
+    const ordered = [...ready.filter(r => r.role !== "reportee"), ...ready.filter(r => r.role === "reportee")];
+    for (const [i, r] of ordered.entries()) {
+      try {
+        const res = await onCreate({
+          full_name: r.full_name, email: r.email, role: r.role,
+          manager_id: isAdmin ? (r.role === "admin" ? null : ids.get(r.manager_email) || null) : me.id,
+          color: COLORS[i % COLORS.length],
+        });
+        ids.set(r.email, res.id);
+        out[r.email] = { ok: true, email_sent: res.email_sent, invite_link: res.invite_link };
+      } catch (ex) { out[r.email] = { ok: false, error: ex.message }; }
+      setResults({ ...out });
+    }
+    setBusy(false);
+    onDone();
+  };
+
+  const links = results ? Object.entries(results).filter(([, v]) => v.ok && !v.email_sent && v.invite_link) : [];
+  const copyLinks = () => {
+    const name = e => rows.find(r => r.email === e)?.full_name || e;
+    navigator.clipboard.writeText(links.map(([e, v]) => `${name(e)} <${e}>: ${v.invite_link}`).join("\n"));
+    setCopied(true); setTimeout(() => setCopied(false), 2000);
+  };
+  const done = results && Object.keys(results).length === ready.length && !busy;
+
+  return (
+    <Dialog open onOpenChange={o => !o && !busy && onClose()}>
+      <ModalContent size="xl">
+        <DialogHeader>
+          <DialogTitle>Bulk add {isAdmin ? "users" : "reportees"}</DialogTitle>
+          <DialogDescription>Upload an Excel or CSV sheet — everyone gets an invite email to set their password{isAdmin ? "" : ", and is added to your team"}.</DialogDescription>
+        </DialogHeader>
+        {!results && (
+          <>
+            <Notice className="flex items-center justify-between gap-3 flex-wrap">
+              <span>1. Download the template and fill one person per row. 2. Upload it here.</span>
+              <Button size="sm" variant="outline" onClick={downloadTemplate}><Download className="h-3.5 w-3.5 mr-1.5" />Template</Button>
+            </Notice>
+            <label className="flex items-center justify-center gap-2 border-2 border-dashed rounded-xl py-6 cursor-pointer hover:bg-muted transition text-[13px] text-muted-foreground">
+              <Upload className="h-4 w-4" />{fileName || "Choose .xlsx / .csv file"}
+              <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onFile} />
+            </label>
+          </>
+        )}
+        {rows && (
+          <div>
+            <div className="text-[13px] font-semibold mb-2">{results ? `${Object.values(results).filter(v => v.ok).length} of ${ready.length} added` : `${ready.length} of ${rows.length} rows ready`}</div>
+            <div className="border rounded-lg divide-y max-h-[320px] overflow-y-auto scroll-quiet">
+              {rows.map(r => {
+                const res = results?.[r.email];
+                return (
+                  <div key={r.rowNo} className={cn("flex items-start gap-2.5 px-3 py-2.5 text-[12.5px]", r.errors.length && "bg-rose-50/60")}>
+                    <span className="text-muted-foreground w-12 shrink-0">Row {r.rowNo}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{r.full_name || <em className="text-muted-foreground">(no name)</em>} <span className="text-muted-foreground font-normal">· {r.email}</span></div>
+                      {isAdmin && <div className="text-[11px] text-muted-foreground">{ROLE_LABELS[r.role] || "?"}{r.manager_email ? ` · reports to ${r.manager_email}` : ""}</div>}
+                    </div>
+                    <span className="text-right shrink-0 max-w-[45%]">
+                      {r.errors.length ? <span className="text-rose-600">{r.errors.join(", ")}</span>
+                        : !res ? (busy ? <Spinner className="h-4 w-4" /> : <Check className="h-4 w-4 text-emerald-600 inline" />)
+                        : !res.ok ? <span className="text-rose-600">{res.error}</span>
+                        : res.email_sent ? <span className="text-emerald-700 font-medium">Invite emailed</span>
+                        : <span className="text-amber-700 font-medium">Added — share link</span>}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            {!results && ready.length < rows.length && <p className="text-xs text-muted-foreground mt-1.5">Rows with errors are skipped. Fix them in the sheet and upload again.</p>}
+            {links.length > 0 && (
+              <Notice tone="warning" className="mt-3 flex items-center justify-between gap-3 flex-wrap">
+                <span>{links.length} invite email(s) couldn't be sent. Copy their one-time links and share them on Teams / Outlook.</span>
+                <Button size="sm" variant="outline" onClick={copyLinks}><Copy className="h-3.5 w-3.5 mr-1.5" />{copied ? "Copied!" : "Copy links"}</Button>
+              </Notice>
+            )}
+          </div>
+        )}
+        {err && <FormError>{err}</FormError>}
+        <DialogFooter className="gap-2 sm:gap-2">
+          {done ? <Button className="flex-1" onClick={onClose}>Done</Button> : (
+            <>
+              <Button variant="outline" className="flex-1" disabled={busy} onClick={onClose}>Cancel</Button>
+              <Button className="flex-[2]" disabled={!ready.length || busy || !!results} onClick={doImport}>{busy ? "Adding…" : `Add ${ready.length} ${isAdmin ? "user" : "reportee"}${ready.length === 1 ? "" : "s"}`}</Button>
+            </>
+          )}
+        </DialogFooter>
+      </ModalContent>
+    </Dialog>
   );
 }
 
@@ -2621,8 +3220,9 @@ function UserFormModal({ user, managers, onSubmit, onClose }) {
   );
 }
 
-function UsersAdmin({ me, people, onCreate, onUpdate, onToggleActive, onSendLink, onDelete }) {
+function UsersAdmin({ me, people, onCreate, onCreateBulk, onUpdate, onToggleActive, onSendLink, onDelete, onRefresh }) {
   const [toDelete, setToDelete] = useState(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [roleF, setRoleF] = useState("all");
   const [editing, setEditing] = useState(null); // null | "new" | profile
@@ -2646,10 +3246,14 @@ function UsersAdmin({ me, people, onCreate, onUpdate, onToggleActive, onSendLink
           <h1 className="text-[23px] sm:text-[25px] font-bold tracking-[-0.025em] leading-tight text-foreground">Users</h1>
           <p className="text-[12.5px] text-muted-foreground mt-1.5">Add managers and reportees, set reporting lines, and control access.</p>
         </div>
-        <Button size="sm" onClick={() => setEditing("new")}><Plus className="h-4 w-4 mr-1.5" />Add User</Button>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}><Upload className="h-4 w-4 mr-1.5" />Bulk Add</Button>
+          <Button size="sm" onClick={() => setEditing("new")}><Plus className="h-4 w-4 mr-1.5" />Add User</Button>
+        </div>
       </div>
       <InviteResult result={result} onDismiss={() => setResult(null)} />
       <DeleteUserDialog user={toDelete} onCancel={() => setToDelete(null)} onConfirm={() => { const u = toDelete; setToDelete(null); rowAction(u.id, () => onDelete(u)); }} />
+      {bulkOpen && <BulkUsersModal mode="admin" people={people} me={me} onCreate={onCreateBulk || onCreate} onDone={onRefresh} onClose={() => setBulkOpen(false)} />}
       <div className="flex gap-2.5 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[220px]">
           <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -2848,6 +3452,7 @@ export default function App() {
   const [requestTarget, setRequestT] = useState(null);
   const [addModal, setAdd] = useState(false);         // false | { catalogId? }
   const [bulkModal, setBulk] = useState(null);        // null | { ids }
+  const [selfAssignOpen, setSelfAssignOpen] = useState(false);
   const [editTarget, setEditT] = useState(null);
   const [toast, setToast] = useState(null); // { tone, text }
   const [detailTarget, setDetailT] = useState(null);
@@ -2961,6 +3566,7 @@ svg.lucide{display:block;flex-shrink:0}
       setCurrentFY(fy); setFyFilterD(fy);
       if (!st) await api.upsertSettings({ pending_reminder_days: 7, overdue_reminder_days: 3, current_fy: fy });
     } else {
+      setCatalog(await api.listCatalog());
       const fys = [...new Set(trs.map(t => t.fy))].filter(Boolean).sort().reverse();
       const fy = fys[0] || getFY();
       setFyFilterM(fy);
@@ -3043,6 +3649,28 @@ svg.lucide{display:block;flex-shrink:0}
     }
   };
 
+  // Reportee assigns catalog trainings to themselves; their manager is emailed.
+  const selfAssign = async ({ items, expectedEnd, dueDate }) => {
+    const ids = [];
+    for (const c of items) {
+      ids.push((await api.createTraining({
+        name: c.name, description: c.description || null, category_id: c.category_id, training_link: c.training_link, mode: c.mode,
+        trainer: c.trainer, priority: c.priority, resources: c.resources || [],
+        expected_end_date: expectedEnd, due_date: dueDate, fy: getFY(), status: "pending",
+        catalog_id: c.id, assigned_to: profile.id,
+      }, (c.parts || []).map(p => ({ title: p.title, part_link: p.part_link || null })))).id);
+    }
+    setSelfAssignOpen(false);
+    await loadData();
+    try {
+      const r = await api.notifySelfAssigned(ids);
+      if (r.skipped) setToast({ tone: "warning", text: `Added to your trainings. Your manager wasn't emailed — ${r.reason}.` });
+      else setToast({ tone: "success", text: `Added to your trainings — your manager has been notified.` });
+    } catch (e) {
+      setToast({ tone: "warning", text: `Added to your trainings, but your manager couldn't be emailed (${e.message}).` });
+    }
+  };
+
   const editTraining = async (id, patch) => { await api.updateTraining(id, patch); setEditT(null); setDetailT(null); await loadData(); };
   const deleteTraining = async (t) => { await api.deleteTraining(t.id); setDetailT(null); await loadData(); };
 
@@ -3068,6 +3696,7 @@ svg.lucide{display:block;flex-shrink:0}
   };
 
   const createUser = async (payload) => { const res = await api.provisionUser(payload); await loadData(); return res; };
+  const createUserQuiet = (payload) => api.provisionUser(payload);
   const updateUser = async (id, patch) => { await api.adminUpdateUser(id, patch); await loadData(); };
   const toggleUserActive = async (u) => { await api.setUserActive(u.id, !u.is_active); await loadData(); };
   const deleteUser = async (u) => { await api.deleteUser(u.id); await loadData(); setToast({ tone: "success", text: `${u.full_name} was deleted.` }); };
@@ -3094,12 +3723,12 @@ svg.lucide{display:block;flex-shrink:0}
     return (
       <>
         <AppShell renderSidebar={close => <Sidebar profile={profile} tab={tab} setTab={t => { setTab(t); close(); }} onLogout={logout} myDone={0} myTotal={0} trainings={[]} currentFY={currentFY} pendingApprovalsCount={0} />}>
-          {tab === "overview" && <AdminOverview people={people} trainings={trainings} requests={requests} onRefresh={refresh} refreshing={refreshing}
+          {tab === "overview" && <AdminOverview people={people} trainings={trainings} requests={requests} onRefresh={refresh} refreshing={refreshing} onDeleteTraining={deleteTraining}
             onDetail={(t, p) => setDetailT({ training: t, part: p })} onExport={(reps, fy) => setExportOpen({ reportees: reps, fy })} />}
-          {tab === "users" && <UsersAdmin me={profile} people={people} onCreate={createUser} onUpdate={updateUser} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} onDelete={deleteUser} />}
+          {tab === "users" && <UsersAdmin me={profile} people={people} onCreate={createUser} onCreateBulk={createUserQuiet} onUpdate={updateUser} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} onDelete={deleteUser} onRefresh={refresh} />}
           {tab === "catalog" && <CatalogPage catalog={catalog} categories={categories} trainings={trainings} canAssign={false} onSave={saveCatalogItem} onImport={importCatalog} onDelete={deleteCatalogItems} />}
         </AppShell>
-        {detailTarget && <DetailModal training={detailTarget.training} part={detailTarget.part} reportees={people} requests={requests} onClose={() => setDetailT(null)} />}
+        {detailTarget && <DetailModal training={detailTarget.training} part={detailTarget.part} reportees={people} requests={requests} onClose={() => setDetailT(null)} onDelete={deleteTraining} />}
         <Toast toast={toast} onClose={() => setToast(null)} />
         {exportOpen && <ExportModal reportees={exportOpen.reportees} trainings={trainings.filter(t => exportOpen.reportees.some(r => r.id === t.assigned_to))} requests={requests}
           fyList={[...new Set([getFY(), ...trainings.map(t => t.fy)])].filter(Boolean).sort().reverse()} currentFY={exportOpen.fy} onClose={() => setExportOpen(false)} />}
@@ -3123,13 +3752,13 @@ svg.lucide{display:block;flex-shrink:0}
   return (
     <>
       <AppShell renderSidebar={close => <Sidebar profile={profile} tab={tab} setTab={t => { setTab(t); close(); }} onLogout={logout} myDone={myDone} myTotal={myTotal} trainings={teamT} currentFY={currentFY} pendingApprovalsCount={approvals.length} showMyTrainings={isManager && hasOwnTrainings} />}>
-        {tab === "dashboard" && isManager && <Dashboard reportees={reportees} trainings={teamT} onAdd={() => setAdd({})} onBulk={() => setBulk({ ids: [] })} onRefresh={refresh} refreshing={refreshing} fyList={allFYs} fyFilter={fyFilterD} setFyFilter={setFyFilterD} onExport={() => setExportOpen(true)} onDetail={(t, p) => setDetailT({ training: t, part: p })} />}
+        {tab === "dashboard" && isManager && <Dashboard reportees={reportees} trainings={teamT} requests={requests} onAdd={() => setAdd({})} onBulk={() => setBulk({ ids: [] })} onDeleteTraining={deleteTraining} onRefresh={refresh} refreshing={refreshing} fyList={allFYs} fyFilter={fyFilterD} setFyFilter={setFyFilterD} onExport={() => setExportOpen(true)} onDetail={(t, p) => setDetailT({ training: t, part: p })} />}
         {tab === "approvals" && isManager && <ApprovalsPanel approvals={approvals} onApprove={approveOne} onSendBack={sendBackOne} onRefresh={refresh} refreshing={refreshing} />}
         {tab === "catalog" && isManager && <CatalogPage catalog={catalog} categories={categories} trainings={teamT} canAssign onSave={saveCatalogItem} onImport={importCatalog} onDelete={deleteCatalogItems} onAssign={id => setAdd({ catalogId: id })} onBulkAssign={ids => setBulk({ ids })} />}
-        {tab === "my-trainings" && hasOwnTrainings && <MyTrainings trainings={myT} requests={requests} onRequestApproval={(t, p) => setRequestT({ training: t, part: p })} onDetail={(t, p) => setDetailT({ training: t, part: p })} onStart={startTraining} onProgress={updateProgress} fyList={allFYs.length ? allFYs : [getFY()]} fyFilter={fyFilterM} setFyFilter={setFyFilterM} />}
+        {tab === "my-trainings" && hasOwnTrainings && <MyTrainings trainings={myT} requests={requests} onRequestApproval={(t, p) => setRequestT({ training: t, part: p })} onDetail={(t, p) => setDetailT({ training: t, part: p })} onStart={startTraining} onProgress={updateProgress} onSelfAssign={profile.manager_id ? () => setSelfAssignOpen(true) : null} fyList={allFYs.length ? allFYs : [getFY()]} fyFilter={fyFilterM} setFyFilter={setFyFilterM} />}
         {tab === "knowledge-hub" && <KnowledgeHub trainings={trainings} reportees={people} requests={requests} onDetail={(t, p) => setDetailT({ training: t, part: p })} />}
         {tab === "reminders" && isManager && <Reminders reportees={reportees} trainings={teamT} settings={managerSettings} onSaveSettings={saveReminderSettings} onMarkReminded={markReminded} />}
-        {tab === "settings" && isManager && <Settings reportees={reportees} trainings={teamT} currentFY={currentFY} onAddReportee={createUser} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} onDelete={deleteUser} onFinalizeYear={finalizeYear} onRefreshReportees={refresh} />}
+        {tab === "settings" && isManager && <Settings me={profile} people={people} reportees={reportees} trainings={teamT} currentFY={currentFY} onAddReportee={createUser} onAddReporteeBulk={createUserQuiet} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} onDelete={deleteUser} onFinalizeYear={finalizeYear} onRefreshReportees={refresh} />}
       </AppShell>
       {detailTarget && <DetailModal training={detailTarget.training} part={detailTarget.part} reportees={people} requests={requests} onClose={() => setDetailT(null)}
         onEdit={isManager && detailTarget.training.assigned_to !== profile.id ? t => setEditT(t) : null}
@@ -3138,6 +3767,7 @@ svg.lucide{display:block;flex-shrink:0}
       {editTarget && <EditTrainingModal training={editTarget} categories={categories} onSubmit={editTraining} onClose={() => setEditT(null)} />}
       {requestTarget && <ApprovalRequestModal training={requestTarget.training} part={requestTarget.part} requests={requests} onSubmit={requestApproval} onClose={() => setRequestT(null)} />}
       {addModal && <AssignModal reportees={reportees} categories={categories} catalog={catalog} currentFY={currentFY} initialCatalogId={addModal.catalogId} onSubmit={addTraining} onClose={() => setAdd(false)} onGoToSettings={() => { setAdd(false); setTab("settings"); }} />}
+      {selfAssignOpen && <SelfAssignModal catalog={catalog} myTrainings={myT} onSubmit={selfAssign} onClose={() => setSelfAssignOpen(false)} />}
       {bulkModal && <BulkAssignModal reportees={reportees} catalog={catalog} currentFY={currentFY} initialIds={bulkModal.ids} onSubmit={bulkAssign} onClose={() => setBulk(null)} onGoToSettings={() => { setBulk(null); setTab("settings"); }} />}
       {exportOpen && <ExportModal reportees={reportees} trainings={teamT} requests={requests} fyList={allFYs} currentFY={currentFY} onClose={() => setExportOpen(false)} />}
     </>

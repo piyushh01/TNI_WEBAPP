@@ -335,3 +335,6 @@ export const deleteUser = (userId) => callApi("delete-user", { user_id: userId }
 
 // Emails reportees about trainings just assigned to them → { sent, failed[], skipped? }
 export const notifyAssigned = (trainingIds) => callApi("notify-assigned", { training_ids: trainingIds });
+
+// Reportee assigned catalog trainings to themselves → email their manager.
+export const notifySelfAssigned = (trainingIds) => callApi("notify-self-assigned", { training_ids: trainingIds });
