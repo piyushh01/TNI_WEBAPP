@@ -1389,6 +1389,7 @@ function DetailModal({ training, part: focusPart, reportees, requests, onClose, 
 function ApprovalRequestModal({ training, part, requests, onSubmit, onClose }) {
   const [notes, setNotes] = useState(""); const [outcomes, setOutcomes] = useState([{ url: "", title: "" }]);
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
   const ok = notes.trim().length > 0 && cleanLinks(outcomes).length > 0 && linksValid(outcomes);
   const partsList = sortedParts(training);
   const partIdx = part ? partsList.findIndex(p => p.id === part.id) : -1;
@@ -1398,8 +1399,10 @@ function ApprovalRequestModal({ training, part, requests, onSubmit, onClose }) {
 
   const submit = async () => {
     if (!ok) return;
-    setBusy(true);
+    setBusy(true); setErr("");
+    // Show a failed submit in the dialog instead of failing silently.
     try { await onSubmit(training.id, part?.id || null, notes.trim(), normLinks(outcomes)); }
+    catch (e) { setErr(e.message || "Couldn't submit. Please try again."); }
     finally { setBusy(false); }
   };
 
@@ -1438,6 +1441,7 @@ function ApprovalRequestModal({ training, part, requests, onSubmit, onClose }) {
           <LinkListEditor links={outcomes} setLinks={setOutcomes} titleP="e.g. 'My notes doc', 'Certificate'" addLabel="Add another reference" />
         </div>
 
+        {err && <FormError>{err}</FormError>}
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
           <Button className="flex-[2]" disabled={!ok || busy} onClick={submit}>{busy ? "Submitting…" : isResubmit ? "Resubmit" : "Submit for Approval"}</Button>
