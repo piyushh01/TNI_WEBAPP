@@ -4,7 +4,7 @@ import {
   BookOpen, LogOut, Plus, RefreshCw, Download, Search, Link2, X,
   ChevronDown, ChevronUp, ChevronRight, Check, CircleDot, Circle, Clock, AlertCircle,
   Target, Users, Package, Trophy, Pencil, Trash2, GraduationCap, ExternalLink,
-  Mail, Copy, Sparkles, ShieldCheck, CalendarDays, Play, Upload, FolderOpen, UserCog, Send, Menu, FileText,
+  Mail, Copy, Sparkles, ShieldCheck, CalendarDays, Play, Upload, FolderOpen, UserCog, Send, Menu, FileText, ArrowLeftRight,
 } from "lucide-react";
 import o2hLogo from "./assets/o2h-logo.svg";
 import o2hLogoLight from "./assets/o2h-logo-light.svg";
@@ -544,8 +544,9 @@ function AppShell({ renderSidebar, children }) {
 }
 
 // ── SIDEBAR ───────────────────────────────────────────────────────────────────
-function Sidebar({ profile, tab, setTab, onLogout, myDone, myTotal, trainings, currentFY, pendingApprovalsCount, showMyTrainings, showApprovals }) {
-  const isManager = profile.role === "reporting_manager";
+function Sidebar({ profile, tab, setTab, onLogout, myDone, myTotal, trainings, currentFY, pendingApprovalsCount, showMyTrainings, showApprovals, reporteeView, onSwitchView }) {
+  // A manager signed in as Reportee sees only the reportee modules.
+  const isManager = profile.role === "reporting_manager" && !reporteeView;
   const isAdmin = profile.role === "admin";
   const overdue = trainings.filter(t => isOpenStatus(getEffStatus(t)) && isOverdue(t.due_date)).length;
   const nav = isAdmin ? [
@@ -593,7 +594,13 @@ function Sidebar({ profile, tab, setTab, onLogout, myDone, myTotal, trainings, c
           );
         })}
       </nav>
-      <a href={GUIDE_URLS[profile.role]} target="_blank" rel="noreferrer"
+      {onSwitchView && (
+        <button onClick={onSwitchView}
+          className="mt-2 w-full flex items-center gap-2.5 rounded-lg px-2.5 h-10 text-[13px] text-[#d3ded6] hover:bg-white/[0.07] hover:text-white transition-colors outline-none focus-visible:ring-2 focus-visible:ring-white/40">
+          <ArrowLeftRight className="h-[17px] w-[17px] opacity-80" />{reporteeView ? "Switch to Manager view" : "Switch to Reportee view"}
+        </button>
+      )}
+      <a href={GUIDE_URLS[reporteeView ? "reportee" : profile.role]} target="_blank" rel="noreferrer"
         className="mt-2 flex items-center gap-2.5 rounded-lg px-2.5 h-10 text-[13px] text-[#d3ded6] hover:bg-white/[0.07] hover:text-white transition-colors outline-none focus-visible:ring-2 focus-visible:ring-white/40">
         <FileText className="h-[17px] w-[17px] opacity-80" />User Guide
       </a>
@@ -602,7 +609,7 @@ function Sidebar({ profile, tab, setTab, onLogout, myDone, myTotal, trainings, c
           <UAvatar solid name={profile.full_name} color={profile.color} className="h-8 w-8 ring-2 ring-white/10" />
           <div className="min-w-0">
             <div className="text-[12.5px] font-semibold text-white truncate">{profile.full_name}</div>
-            <div className="text-[10.5px] text-[#b4c1b8] mt-0.5">{ROLE_LABELS[profile.role]}</div>
+            <div className="text-[10.5px] text-[#b4c1b8] mt-0.5">{reporteeView ? "Reportee" : ROLE_LABELS[profile.role]}</div>
           </div>
         </div>
         <button onClick={onLogout} className="w-full h-9 rounded-lg border border-white/[0.13] bg-white/[0.06] text-[12px] font-medium text-[#e3ebe5] inline-flex items-center justify-center gap-2 hover:bg-white/[0.1] transition-colors">
@@ -3807,6 +3814,8 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [tab, setTab] = useState("dashboard");
+  // A manager who reports to someone and signed in as Reportee.
+  const [reporteeView, setReporteeView] = useState(false);
   const [requestTarget, setRequestT] = useState(null);
   const [addModal, setAdd] = useState(false);         // false | { catalogId? }
   const [bulkModal, setBulk] = useState(null);        // null | { ids }
@@ -3890,11 +3899,16 @@ svg.lucide{display:block;flex-shrink:0}
       }
       // A manager who reports to someone may also sign in as a Reportee (lands on their own trainings).
       const asReportee = loginRole === "reportee" && p.role === "reporting_manager" && !!p.manager_id;
+      if (loginRole === "reportee" && p.role === "reporting_manager" && !p.manager_id) {
+        setLoginError("You don't have a Reporting Manager set yet, so there's no Reportee view for your account. Sign in as Reporting Manager, or ask HR to set your reporting manager.");
+        setLoginRole(null); api.signOut(); return;
+      }
       if (loginRole && p.role !== loginRole && !asReportee) {
         setLoginError(`This account is registered as ${ROLE_LABELS[p.role]}, not ${ROLE_LABELS[loginRole]}. Please pick the right role.`);
         setLoginRole(null); api.signOut(); return;
       }
       setLoginRole(null); setLoginError("");
+      setReporteeView(asReportee);
       setTab(p.role === "admin" ? "overview" : p.role === "reporting_manager" && !asReportee ? "dashboard" : "my-trainings");
       setProfile(p);
     }).catch(() => setProfile(null));
@@ -4141,6 +4155,9 @@ svg.lucide{display:block;flex-shrink:0}
   // Only the user's own assignments — `trainings` also holds their team's and
   // (via Knowledge Hub visibility) teammates' approved trainings.
   const myT = trainings.filter(t => t.assigned_to === profile.id);
+  const mgrView = isManager && !reporteeView;
+  const canSwitch = isManager && !!profile.manager_id;
+  const switchView = () => { const r = !reporteeView; setReporteeView(r); setTab(r ? "my-trainings" : "dashboard"); };
   const hasOwnTrainings = !isManager || !!profile.manager_id || myT.length > 0;
   // A manager's team view: direct reportees' trainings only.
   const teamIds = new Set(reportees.map(r => r.id));
@@ -4152,19 +4169,19 @@ svg.lucide{display:block;flex-shrink:0}
 
   return (
     <>
-      <AppShell renderSidebar={close => <Sidebar profile={profile} tab={tab} setTab={t => { setTab(t); close(); }} onLogout={logout} myDone={myDone} myTotal={myTotal} trainings={teamT} currentFY={currentFY} pendingApprovalsCount={approvals.length} showMyTrainings={isManager && hasOwnTrainings} />}>
-        {tab === "dashboard" && isManager && <Dashboard reportees={reportees} trainings={teamT} requests={requests} onAdd={() => setAdd({})} onBulk={() => setBulk({ ids: [] })} onDeleteTraining={deleteTraining} onRefresh={refresh} refreshing={refreshing} fyList={allFYs} fyFilter={fyFilterD} setFyFilter={setFyFilterD} onExport={() => setExportOpen(true)} onDetail={(t, p) => setDetailT({ training: t, part: p })} />}
-        {tab === "approvals" && isManager && <ApprovalsPanel approvals={approvals} onApprove={approveOne} onSendBack={sendBackOne} onRefresh={refresh} refreshing={refreshing} />}
-        {tab === "catalog" && isManager && <CatalogPage catalog={catalog} categories={categories} trainings={teamT} people={reportees.filter(r => r.is_active)} canAssign onSave={saveCatalogItem} onImport={importCatalog} onDelete={deleteCatalogItems} onAssign={id => setAdd({ catalogId: id })} onBulkAssign={ids => setBulk({ ids })} />}
+      <AppShell renderSidebar={close => <Sidebar profile={profile} tab={tab} setTab={t => { setTab(t); close(); }} onLogout={logout} myDone={myDone} myTotal={myTotal} trainings={teamT} currentFY={currentFY} pendingApprovalsCount={approvals.length} showMyTrainings={isManager && hasOwnTrainings} reporteeView={isManager && reporteeView} onSwitchView={canSwitch ? switchView : null} />}>
+        {tab === "dashboard" && mgrView && <Dashboard reportees={reportees} trainings={teamT} requests={requests} onAdd={() => setAdd({})} onBulk={() => setBulk({ ids: [] })} onDeleteTraining={deleteTraining} onRefresh={refresh} refreshing={refreshing} fyList={allFYs} fyFilter={fyFilterD} setFyFilter={setFyFilterD} onExport={() => setExportOpen(true)} onDetail={(t, p) => setDetailT({ training: t, part: p })} />}
+        {tab === "approvals" && mgrView && <ApprovalsPanel approvals={approvals} onApprove={approveOne} onSendBack={sendBackOne} onRefresh={refresh} refreshing={refreshing} />}
+        {tab === "catalog" && mgrView && <CatalogPage catalog={catalog} categories={categories} trainings={teamT} people={reportees.filter(r => r.is_active)} canAssign onSave={saveCatalogItem} onImport={importCatalog} onDelete={deleteCatalogItems} onAssign={id => setAdd({ catalogId: id })} onBulkAssign={ids => setBulk({ ids })} />}
         {tab === "my-trainings" && hasOwnTrainings && <MyTrainings trainings={myT} requests={requests} onRequestApproval={(t, p) => setRequestT({ training: t, part: p })} onDetail={(t, p) => setDetailT({ training: t, part: p })} onStart={t => setStartT({ training: t })} onProgress={updateProgress} onSelfAssign={profile.manager_id ? () => setSelfAssignOpen(true) : null} fyList={allFYs.length ? allFYs : [getFY()]} fyFilter={fyFilterM} setFyFilter={setFyFilterM} />}
         {tab === "knowledge-hub" && <KnowledgeHub trainings={trainings} reportees={people} requests={requests} onDetail={(t, p) => setDetailT({ training: t, part: p })} />}
-        {tab === "reminders" && isManager && <Reminders reportees={reportees} trainings={teamT} settings={managerSettings} onSaveSettings={saveReminderSettings} onMarkReminded={markReminded} />}
-        {tab === "settings" && isManager && <Settings me={profile} people={people} reportees={reportees} trainings={teamT} currentFY={currentFY} onAddReportee={createUser} onAddReporteeBulk={createUserQuiet} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} onTempPassword={setTempPassword} onDelete={deleteUser} onFinalizeYear={finalizeYear} onRefreshReportees={refresh} />}
+        {tab === "reminders" && mgrView && <Reminders reportees={reportees} trainings={teamT} settings={managerSettings} onSaveSettings={saveReminderSettings} onMarkReminded={markReminded} />}
+        {tab === "settings" && mgrView && <Settings me={profile} people={people} reportees={reportees} trainings={teamT} currentFY={currentFY} onAddReportee={createUser} onAddReporteeBulk={createUserQuiet} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} onTempPassword={setTempPassword} onDelete={deleteUser} onFinalizeYear={finalizeYear} onRefreshReportees={refresh} />}
       </AppShell>
       {detailTarget && <DetailModal training={detailTarget.training} part={detailTarget.part} reportees={people} requests={requests} onClose={() => setDetailT(null)}
-        onEdit={isManager && detailTarget.training.assigned_to !== profile.id ? t => setEditT(t) : null}
-        onDelete={isManager && detailTarget.training.assigned_to !== profile.id ? deleteTraining : null}
-        onInitiate={isManager && detailTarget.training.assigned_to !== profile.id ? t => setStartT({ training: t, forOther: people.find(x => x.id === t.assigned_to)?.full_name || "your reportee" }) : null} />}
+        onEdit={mgrView && detailTarget.training.assigned_to !== profile.id ? t => setEditT(t) : null}
+        onDelete={mgrView && detailTarget.training.assigned_to !== profile.id ? deleteTraining : null}
+        onInitiate={mgrView && detailTarget.training.assigned_to !== profile.id ? t => setStartT({ training: t, forOther: people.find(x => x.id === t.assigned_to)?.full_name || "your reportee" }) : null} />}
       {startT && <StartTrainingModal training={startT.training} forOther={startT.forOther} onSubmit={startTraining} onClose={() => setStartT(null)} />}
       <Toast toast={toast} onClose={() => setToast(null)} />
       {editTarget && <EditTrainingModal training={editTarget} categories={categories} onSubmit={editTraining} onClose={() => setEditT(null)} />}
