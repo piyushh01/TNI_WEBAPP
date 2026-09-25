@@ -114,7 +114,11 @@ export async function createTraining(payload, parts = []) {
       sort_order: i,
     }));
     const { error: partsErr } = await supabase.from("training_parts").insert(rows);
-    if (partsErr) throw partsErr;
+    if (partsErr) {
+      // Don't leave a half-created training (without its parts) behind.
+      await supabase.from("trainings").delete().eq("id", training.id);
+      throw partsErr;
+    }
   }
   return training;
 }

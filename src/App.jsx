@@ -3991,22 +3991,16 @@ svg.lucide{display:block;flex-shrink:0}
   };
 
   const bulkAssign = async ({ items, memberIds, expectedEnd, dueDate }) => {
-    const ids = [];
+    // Link entered during bulk assign → keep it on the catalog entry too.
     for (const c of items) {
-      // Link entered during bulk assign → keep it on the catalog entry too.
       if (c.training_link && !catalog.find(x => x.id === c.id)?.training_link) await api.saveCatalogItem({ id: c.id, training_link: c.training_link });
-      for (const assigned_to of memberIds) {
-        ids.push((await api.createTraining({
-          name: c.name, description: c.description || null, category_id: c.category_id, training_link: c.training_link, mode: c.mode,
-          trainer: c.trainer, priority: c.priority, resources: c.resources || [],
-          expected_end_date: expectedEnd || null, due_date: dueDate, fy: currentFY, status: "pending",
-          catalog_id: c.id, assigned_to,
-        }, (c.parts || []).map(p => ({ title: p.title, part_link: p.part_link || null })))).id);
-      }
     }
+    // Skips trainings people already have open, so re-running after an error doesn't duplicate.
+    const ids = await assignFromCatalog(items, memberIds, expectedEnd, dueDate);
     setBulk(null);
     await loadData();
-    notifyAssignees(ids);
+    if (ids.length) notifyAssignees(ids);
+    else setToast({ tone: "warning", text: "Nothing new to assign — the selected people already have these trainings." });
   };
 
   // Assignment is already saved; the email is best-effort and reported separately.
