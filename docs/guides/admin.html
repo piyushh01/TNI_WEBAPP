@@ -20,10 +20,10 @@
 <ul>
   <li><b>People:</b> create managers and reportees, set who reports to whom, and control access.</li>
   <li><b>Visibility:</b> see everyone's training progress, how many trainings each manager has approved, and what is overdue. This is view only.</li>
-  <li><b>Catalog:</b> maintain the company-wide Training Catalog, including bulk import from o2h training sheets.</li>
+  <li><b>Catalog &amp; plans:</b> maintain the company-wide Training Catalog and assign trainings to people, for example a new joiner's plan straight from the sheet.</li>
   <li><b>Clean-up:</b> delete trainings that were assigned by mistake.</li>
 </ul>
-<p>Assigning trainings and approving completions stays with each person's <b>Reporting Manager</b>.</p>
+<p>Approving completions stays with each person's <b>Reporting Manager</b>.</p>
 
 <h2>2. Signing in</h2>
 <ol>
@@ -51,7 +51,8 @@
       <li><b>Admin / HR</b>: no reporting manager.</li>
     </ul>
   </li>
-  <li>Click <span class="ui">Add &amp; send invite</span>. The person gets an invite email and sets their own password.</li>
+  <li>Choose how they get their login: <b>Send invite email</b> (they set their own password from the email), or <b>Temporary password</b> (no email; you share their email and password yourself, and they must change it after signing in).</li>
+  <li>Click <span class="ui">Add &amp; send invite</span> or <span class="ui">Add &amp; create password</span>. <span class="ui">Copy message to send</span> copies a ready-written message with the login details.</li>
 </ol>
 <p>Add Reporting Managers <b>before</b> their reportees, so the manager can be picked from the list.</p>
 <div class="note warn"><span class="h">If the email can't be sent</span>Skillgo shows <i>"Account ready — but the email couldn't be sent"</i> with a one-time link. Click <span class="ui">Copy</span> and share it on Teams or Outlook.</div>
@@ -69,8 +70,8 @@
     </table>
   </li>
   <li>Upload the file. Each row is checked for a missing name, invalid email, duplicates in the sheet, people who are already users, unknown roles, and a missing or unknown reporting manager. Rows with problems are listed with the reason and skipped.</li>
-  <li>Click <span class="ui">Add N users</span>. Managers in the sheet are created first, so their reportees can be linked to them straight away. Each row shows <i>"Invite emailed"</i> or <i>"Added — share link"</i>.</li>
-  <li>If any invites couldn't be emailed, click <span class="ui">Copy links</span> to copy all the one-time links, with names, in one go.</li>
+  <li>Choose <b>Send invite email</b> or <b>Temporary password</b>, then click <span class="ui">Add N users</span>. Managers in the sheet are created first, so their reportees can be linked to them straight away. Each row shows <i>"Invite emailed"</i> or <i>"Added — share link"</i>.</li>
+  <li>If any invites couldn't be emailed, or you chose temporary passwords, click <span class="ui">Copy links</span> / <span class="ui">Copy login details</span> to copy everyone's details, with names, in one go.</li>
 </ol>
 <p>Reporting managers can also bulk-add their own reportees from <b>Team &amp; Settings</b>.</p>
 
@@ -99,8 +100,8 @@
   <tr><td><span class="tag green">Active</span></td><td>Has set a password and can sign in</td></tr>
   <tr><td><span class="tag amber">Invite pending</span></td><td>Hasn't set their password yet</td></tr>
   <tr><td><span class="tag red">Inactive</span></td><td>Sign-in blocked (deactivated)</td></tr>
-  <tr><td>Setup link</td><td>Sends a fresh "set your password" email. Use it for expired invites or forgotten passwords.</td></tr>
-  <tr><td>Deactivate / Reactivate</td><td>Blocks or restores sign-in. All their data is kept. Use this when someone leaves or goes on long leave.</td></tr>
+  <tr><td>Login access</td><td>Three options: <b>Email a setup link</b>, <b>Copy a setup link</b> (no email, share it on Teams) or <b>Set a temporary password</b> (no email, share their email and password). Use it for expired or missing invites and forgotten passwords. A new link or password replaces the previous one.</td></tr>
+  <tr><td>Deactivate / Reactivate</td><td>Blocks or restores sign-in (with a confirmation step). All their data is kept. Use this when someone leaves or goes on long leave.</td></tr>
   <tr><td>Delete (bin icon)</td><td><b>Permanently</b> removes the person with all their trainings, notes and approvals. It can't be undone. Trainings they had assigned to others are kept and re-owned by you.</td></tr>
 </table>
 
@@ -121,21 +122,29 @@
 <p>For each manager: team size, trainings assigned and completed, <b>approvals given</b>, trainings <b>sent back</b>, trainings <b>awaiting approval</b> (their backlog), overdue, and completion %.</p>
 <h3>Employees table</h3>
 <p>For each person: their manager, trainings assigned, not started, in progress, awaiting approval, completed, overdue and a progress bar. Click <span class="ui">View</span> to see their trainings. Click any training for full details, or click the bin icon (or <span class="ui">Delete</span> in the details) to remove a training that was added by mistake.</p>
+<h3>Trainings — who is doing what</h3>
+<p>At the bottom of the Overview, two views follow the same filters:</p>
+<ul>
+  <li><b>By training</b>: each training with how many people have it assigned, not started, in progress, awaiting approval, completed and overdue. Click a training to see every person on it, with their dates, progress and status.</li>
+  <li><b>All assignments</b>: one row per person per training, showing manager, category, status, start → end dates, due date, progress and completion date.</li>
+</ul>
+<p>Search by training or person name, and filter by status or category. Click any row to open the full training details.</p>
 <h3>Export</h3>
 <p>Click <span class="ui">Export</span> to download an Excel report for the people currently shown: Team Summary, Training Details, and Learnings &amp; Notes.</p>
 
 <h2>9. Training Catalog</h2>
 <p>The catalog is shared by all managers. Reportees can also pick from it to assign trainings to themselves.</p>
 <ul>
-  <li><span class="ui">Add Training</span>: name, category, mode (with trainer for Face to Face), priority, optional details, reference links and parts. The material link can be added later, but it's required before the training is assigned.</li>
-  <li><span class="ui">Bulk Import</span>: upload a <b>New Joiner 6 Months Training Plan</b> or <b>TNI plan</b> sheet as it is (.xlsx or .csv; from Google Sheets use File → Download → Microsoft Excel). Check the categories in the preview, untick what you don't need, and import. Existing names are skipped.</li>
+  <li><span class="ui">Add Training</span>: name, category, mode (with trainer for Face to Face), priority, optional details, reference links and parts. The material link can be added later, but it's required before the training is assigned. Tick people under <b>Assign to</b> to give it to them straight away, as "Not started".</li>
+  <li><span class="ui">Assign</span> / <span class="ui">Assign N selected</span>: assign catalog trainings to people at any time. Dates are optional. The person, or their manager, sets the start and end dates when starting the training. Each person is emailed about their new trainings.</li>
+  <li><span class="ui">Bulk Import</span>: upload a <b>New Joiner 6 Months Training Plan</b> or <b>TNI plan</b> sheet as it is (.xlsx or .csv; from Google Sheets use File → Download → Microsoft Excel). Check the categories in the preview and untick what you don't need. If the sheet names the person it's for, Skillgo pre-selects them under <b>Assign these trainings to</b>. Click <span class="ui">Import &amp; assign</span> to add the trainings to the catalog and assign them in one go. Trainings already in the catalog are just assigned.</li>
   <li>Edit with the pencil icon. Delete with the bin icon, or tick several and click <span class="ui">Delete N selected</span>. Deleting from the catalog doesn't affect trainings already assigned.</li>
 </ul>
 <div class="note info"><span class="h">Links are checked everywhere</span>Link fields accept only real web addresses (for example <code>https://…</code> or <code>docs.google.com/…</code>). Plain text shows <i>"Enter a valid link"</i>.</div>
 
 <h2>10. Invite emails &amp; links</h2>
 <ul>
-  <li>Invite and password links work <b>once</b> and for a <b>limited time</b>. If someone sees <i>"This link has expired or was already used"</i>, click <span class="ui">Setup link</span> next to their name.</li>
+  <li>Invite and password links work <b>once</b> and for a <b>limited time</b>. If someone sees <i>"This link has expired or was already used"</i>, click <span class="ui">Login access</span> next to their name.</li>
   <li>Links first open a Skillgo page with an <span class="ui">Accept invitation</span> / <span class="ui">Continue</span> button. This stops Outlook's link scanner from using up the link before the person clicks it.</li>
   <li>Emails can land in <b>Junk / Other</b>. Ask people to check there.</li>
   <li>Reportees get an email when trainings are assigned to them, and managers get one when a reportee assigns themselves a training.</li>
@@ -146,7 +155,9 @@
   <h3>How do I set up a new team from scratch?</h3>
   <p>Add the Reporting Manager first, then their reportees (or put both in one Bulk Add sheet). The manager then assigns trainings from the catalog.</p>
   <h3>Can HR assign trainings or approve them?</h3>
-  <p>No. Assigning and approving stay with the reporting manager. HR can view everything and delete trainings added by mistake.</p>
+  <p>HR can assign trainings, from the catalog or while importing a plan. Approving completions stays with the person's reporting manager. HR can also delete trainings added by mistake.</p>
+  <h3>An invite email never arrived (or went to quarantine).</h3>
+  <p>Open <span class="ui">Login access</span> for the person and choose <b>Copy a setup link</b> or <b>Set a temporary password</b>, then send the copied message on Teams. Ask IT to allow the Skillgo sender if emails keep landing in quarantine.</p>
   <h3>Someone left the company.</h3>
   <p><b>Deactivate</b> them to keep their training history for records. Only <b>Delete</b> if the account was created by mistake.</p>
   <h3>A manager is leaving but has a team.</h3>

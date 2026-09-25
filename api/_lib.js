@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { randomInt } from "node:crypto";
 
 // Shared helpers for the /api serverless functions. Files starting with "_"
 // are not exposed as routes by Vercel (or by the Vite dev middleware).
@@ -57,6 +58,22 @@ export async function getProfile(id) {
 // Admins manage everyone; managers manage their direct reportees.
 export function canManage(caller, target) {
   return caller.role === "admin" || (caller.role === "reporting_manager" && target.manager_id === caller.id);
+}
+
+// One-time sign-in link that opens Skillgo's own "Accept / Continue" page
+// (the token is only used when the person clicks the button there).
+export function appLink(origin, props) {
+  return `${origin}/?token_hash=${encodeURIComponent(props.hashed_token)}&type=${encodeURIComponent(props.verification_type)}`;
+}
+
+// Readable temporary password (no look-alike characters), always with a digit.
+export function tempPassword() {
+  const letters = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz", digits = "23456789";
+  const pick = s => s[randomInt(s.length)];
+  let p = "";
+  for (let i = 0; i < 7; i++) p += pick(letters);
+  for (let i = 0; i < 3; i++) p += pick(digits);
+  return p;
 }
 
 // Where links in invite / reset emails should land.

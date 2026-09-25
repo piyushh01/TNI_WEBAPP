@@ -11,7 +11,7 @@
 
 <div class="toc"><b>Contents</b><ol>
   <li>Your role</li><li>Getting started</li><li>Your screen</li><li>Adding your team</li><li>Training Catalog</li>
-  <li>Assigning trainings</li><li>Editing &amp; deleting trainings</li><li>Approvals</li><li>Dashboard</li>
+  <li>Assigning trainings</li><li>Starting, editing &amp; deleting trainings</li><li>Approvals</li><li>Dashboard</li>
   <li>Reminders</li><li>Year-end tools</li><li>Management report</li><li>Knowledge Hub</li><li>Your own trainings</li><li>FAQ</li>
 </ol></div>
 
@@ -49,8 +49,14 @@
 <p>Go to <span class="ui">Team &amp; Settings</span>.</p>
 <h3>One reportee</h3>
 <ol>
-  <li>Click <span class="ui">Add Reportee</span>, enter their full name and o2h email, pick a colour, and click <span class="ui">Add &amp; send invite</span>.</li>
-  <li>They receive an invite email and set their own password.</li>
+  <li>Click <span class="ui">Add Reportee</span>, enter their full name and o2h email, and pick a colour.</li>
+  <li>Choose how they get their login:
+    <ul>
+      <li><b>Send invite email</b>: they get an email with a link and set their own password.</li>
+      <li><b>Temporary password</b>: no email is sent. Skillgo shows their email and a temporary password for you to share on Teams or Outlook. They must choose their own password after signing in.</li>
+    </ul>
+  </li>
+  <li>Click <span class="ui">Add &amp; send invite</span> or <span class="ui">Add &amp; create password</span>. Use <span class="ui">Copy message to send</span> to copy a ready-written message with their login details.</li>
 </ol>
 <div class="note warn"><span class="h">If the email can't be sent</span>Skillgo shows <i>"Account ready — but the email couldn't be sent"</i> with a one-time link. Click <span class="ui">Copy</span> and send it to the person on Teams or Outlook.</div>
 <h3>Many reportees at once (Bulk Add)</h3>
@@ -58,14 +64,14 @@
   <li>Click <span class="ui">Bulk Add</span>, then <span class="ui">Template</span> to download the Excel template (columns: <b>Full Name</b>, <b>Email</b>).</li>
   <li>Fill in one person per row, save, and upload the file.</li>
   <li>Skillgo checks every row and marks problems (missing name, invalid email, duplicates, people who are already users). Rows with errors are skipped.</li>
-  <li>Click <span class="ui">Add N reportees</span>. Each row then shows <i>"Invite emailed"</i> or <i>"Added — share link"</i>. If any emails couldn't be sent, click <span class="ui">Copy links</span> to copy all their invite links at once.</li>
+  <li>Choose <b>Send invite email</b> or <b>Temporary password</b>, then click <span class="ui">Add N reportees</span>. Each row then shows <i>"Invite emailed"</i> or <i>"Added — share link"</i>. If any emails couldn't be sent, click <span class="ui">Copy links</span> to copy all their invite links at once.</li>
 </ol>
 <h3>Managing reportees</h3>
 <table>
   <tr><th>Action</th><th>What it does</th></tr>
   <tr><td><span class="tag amber">Invite pending</span></td><td>They haven't set their password yet</td></tr>
-  <tr><td>Send setup link</td><td>Emails them a fresh link to set a new password. Use it if the invite expired or they forgot their password.</td></tr>
-  <tr><td>Deactivate / Reactivate</td><td>Blocks or restores their sign-in. Their trainings and history are kept.</td></tr>
+  <tr><td>Login access</td><td>Three ways to get someone signed in: <b>Email a setup link</b>, <b>Copy a setup link</b> (no email, you share it on Teams) or <b>Set a temporary password</b> (no email, you share their email and password). Use it when an invite didn't arrive, expired, or they forgot their password. A new link or password replaces the old one.</td></tr>
+  <tr><td>Deactivate / Reactivate</td><td>Blocks or restores their sign-in (you're asked to confirm). Their trainings and history are kept.</td></tr>
   <tr><td>Delete (bin icon)</td><td><b>Permanently</b> removes the person and all their trainings, notes and approval history. This can't be undone. Use Deactivate if you only want to block access.</td></tr>
 </table>
 <p>To move someone to another manager or change their role, ask HR. They can do it from the Users page.</p>
@@ -77,7 +83,8 @@
   <li>Click <span class="ui">Add Training</span>.</li>
   <li>Fill in <b>Training Name</b>, <b>Training Category</b> (group, then category), <b>Training Mode</b> and <b>Training Priority</b>. For Face to Face trainings, also enter the <b>Trainer</b>. <b>Training Details</b>, extra reference links and <b>Parts / Modules</b> are optional.</li>
   <li>The <b>Training Material Link</b> can be left empty in the catalog, but it must be filled in before the training is assigned.</li>
-  <li>Click <span class="ui">Add to catalog</span>.</li>
+  <li>Optionally tick people under <b>Assign to</b>: they get the training straight away, as "Not started", without dates.</li>
+  <li>Click <span class="ui">Add to catalog</span> (or <span class="ui">Add &amp; assign to N</span>).</li>
 </ol>
 <h3>Bulk import from company sheets</h3>
 <p>Click <span class="ui">Bulk Import</span> and upload one of o2h's training sheets exactly as it is:</p>
@@ -86,7 +93,8 @@
   <li><b>TNI plan</b>: category, method, priority (A+, A, B+, B) and any link in Detail/Comment are read.</li>
   <li>Any simple sheet with a <b>Training Name</b> column also works.</li>
 </ul>
-<p>Every tab in the workbook is read. In the preview, check each training's category (you can change it from the dropdown), untick anything you don't want, then click <span class="ui">Import</span>. Trainings already in the catalog are skipped. Personal columns such as Status, Completion Date and signatures are ignored.</p>
+<p>Every tab in the workbook is read. In the preview, check each training's category (you can change it from the dropdown) and untick anything you don't want.</p>
+<p><b>Assigning while importing:</b> if the sheet names the person it's for (the <i>Name</i> cell on New Joiner and TNI sheets), Skillgo pre-selects them under <b>Assign these trainings to</b>. You can change the selection. Click <span class="ui">Import &amp; assign</span> and every ticked training is added to the catalog and assigned to those people as "Not started". Trainings already in the catalog are just assigned, and trainings without a material link are only added to the catalog. Personal columns such as Status, Completion Date and signatures are ignored.</p>
 <div class="note info"><span class="h">Using Google Sheets?</span>Go to File → Download → Microsoft Excel (.xlsx), then upload that file. PDFs can't be read.</div>
 <h3>Editing and deleting</h3>
 <ul>
@@ -100,7 +108,7 @@
 <ol>
   <li>On the Dashboard click <span class="ui">Assign Training</span>, or click <span class="ui">Assign</span> next to a training in the catalog.</li>
   <li>Under <b>From Training Catalog</b>, pick a training, and its details fill in automatically. Or choose <b>+ New training</b> and fill in the fields yourself. Tick <i>"Also save this training to the Training Catalog"</i> to reuse it later.</li>
-  <li>Set the <b>Expected Training End Date</b> (required) and, optionally, a <b>Due Date</b>. The due date drives overdue flags and reminders.</li>
+  <li>Optionally set an <b>Expected End Date</b> and a <b>Due Date</b>. The due date drives overdue flags and reminders. Dates can also be left empty and set when the training is started.</li>
   <li>Tick the reportees (or <span class="ui">Select all</span>) and click <span class="ui">Assign Training</span>.</li>
 </ol>
 <h3>Many trainings to many reportees (Bulk Assign)</h3>
@@ -112,8 +120,9 @@
 <p>After assigning, <b>each reportee gets one email</b> listing their new trainings. A message at the bottom right confirms whether the emails went out. The training is assigned even if an email fails.</p>
 <div class="note warn"><span class="h">Links are checked</span>Material, reference and part links must be real web addresses (for example <code>https://…</code> or <code>docs.google.com/…</code>). Free text in a link box shows <i>"Enter a valid link"</i> and blocks saving.</div>
 
-<h2>7. Editing and deleting assigned trainings</h2>
+<h2>7. Starting, editing and deleting assigned trainings</h2>
 <ul>
+  <li><b>Initiate:</b> a reportee normally starts a training themselves and picks its start and end dates. You can also do it for them: open a "Not started" training and click <span class="ui">Initiate</span>, choose the <b>Start date</b> and <b>End date</b>, and it moves to In Progress.</li>
   <li><b>Edit:</b> open a training (from a reportee's card → <span class="ui">View all</span>, or any list) and click <span class="ui">Edit</span> to change the name, category, link, mode, trainer, priority or dates. Parts can't be changed once a training is assigned. To change them, delete the training and assign it again.</li>
   <li><b>Delete:</b> click <span class="ui">Delete</span> in the training details, or the bin icon next to a training in a reportee's list (Dashboard → a reportee's card → <span class="ui">View all</span>). This removes it together with any notes and approvals, so use it for trainings added by mistake or for demo purposes.</li>
 </ul>
@@ -178,7 +187,7 @@
 <h2>15. Frequently asked questions</h2>
 <div class="faq">
   <h3>A reportee didn't get their invite.</h3>
-  <p>Ask them to check Junk / Other. Then click <span class="ui">Send setup link</span>. If email still doesn't arrive, copy the link Skillgo shows and send it on Teams.</p>
+  <p>Ask them to check Junk / Other. Then click <span class="ui">Login access</span>. If email still doesn't arrive, copy the link Skillgo shows and send it on Teams.</p>
   <h3>A reportee assigned a training to themselves. Do I need to do anything?</h3>
   <p>No. You get an email telling you what they picked. It shows a <span class="tag green">Self-assigned</span> tag and you approve it as usual. If it isn't relevant, you can delete it.</p>
   <h3>Can I change a training's parts after assigning it?</h3>

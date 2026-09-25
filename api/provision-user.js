@@ -1,14 +1,16 @@
-import { admin, route, getCaller, getProfile, HttpError, appOrigin } from "./_lib.js";
+import { admin, route, getCaller, getProfile, HttpError, appOrigin, appLink, tempPassword } from "./_lib.js";
 
 const ROLES = ["reportee", "reporting_manager", "admin"];
 
-// Creates a user and emails them an invite link to set their own password.
+// Creates a user. Two ways to onboard them:
+//   delivery "email"    (default) — invite email with a link to set their password;
+//                        if the email can't be sent, the link is returned to share manually.
+//   delivery "password" — no email: a temporary password is set and returned; they must
+//                        change it at first sign-in.
 // Admins can create any role; managers can only add reportees under themselves.
-// If Supabase can't send the email (SMTP not configured / rate-limited), the
-// invite link is returned instead so it can be shared manually.
 export default route(async (req) => {
   const caller = await getCaller(req);
-  const { full_name, email, color } = req.body || {};
+  const { full_name, email, color, delivery = "email" } = req.body || {};
   let { role = "reportee", manager_id = null } = req.body || {};
 
   if (!full_name?.trim() || !email?.trim()) throw new HttpError(400, "Name and email are required");
@@ -34,22 +36,33 @@ export default route(async (req) => {
     color: color || "#87a878",
     must_change_password: true,
   };
-  const redirectTo = appOrigin(req);
+  const origin = appOrigin(req);
+  const exists = m => /already been registered|already exists|already registered/i.test(m || "");
 
-  const { data: invited, error } = await admin().auth.admin.inviteUserByEmail(cleanEmail, { data, redirectTo });
-  if (!error) return { id: invited.user.id, email: cleanEmail, email_sent: true };
-
-  if (/already been registered|already exists/i.test(error.message)) {
-    throw new HttpError(400, "A user with this email already exists");
+  if (delivery === "password") {
+    const password = tempPassword();
+    const { data: created, error } = await admin().auth.admin.createUser({ email: cleanEmail, password, email_confirm: true, user_metadata: data });
+    if (error) throw new HttpError(400, exists(error.message) ? "A user with this email already exists" : error.message);
+    return { id: created.user.id, email: cleanEmail, email_sent: false, temp_password: password, sign_in_url: origin };
   }
 
-  // Email couldn't be sent — create the user and hand back the invite link.
+  const { data: invited, error } = await admin().auth.admin.inviteUserByEmail(cleanEmail, { data, redirectTo: origin });
+  if (!error) return { id: invited.user.id, email: cleanEmail, email_sent: true };
+  if (exists(error.message)) throw new HttpError(400, "A user with this email already exists");
+
+  // Email couldn't be sent (or timed out) — make sure the user exists and hand back a link.
+  // A fresh link replaces any earlier one, so only this link will work.
   const { data: link, error: linkErr } = await admin().auth.admin.generateLink({
-    type: "invite", email: cleanEmail, options: { data, redirectTo },
+    type: "invite", email: cleanEmail, options: { data, redirectTo: origin },
   });
-  if (linkErr) throw new HttpError(400, linkErr.message);
+  let result = link, err = linkErr;
+  if (err && exists(err.message)) {
+    // The timed-out invite did create the user — issue a set-password link instead.
+    ({ data: result, error: err } = await admin().auth.admin.generateLink({ type: "recovery", email: cleanEmail, options: { redirectTo: origin } }));
+  }
+  if (err) throw new HttpError(400, err.message);
   return {
-    id: link.user.id, email: cleanEmail, email_sent: false,
-    invite_link: link.properties.action_link, email_error: error.message,
+    id: result.user.id, email: cleanEmail, email_sent: false,
+    invite_link: appLink(origin, result.properties), email_error: error.message,
   };
 });

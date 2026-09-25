@@ -130,8 +130,9 @@ export async function deleteTraining(id) {
 }
 
 // Reportee progress (server-enforced via RPC)
-export async function startTraining(trainingId) {
-  const { error } = await supabase.rpc("start_training", { p_training: trainingId });
+// Initiate a training with its start and expected end dates.
+export async function startTraining(trainingId, start, end) {
+  const { error } = await supabase.rpc("start_training", { p_training: trainingId, p_start: start, p_end: end });
   if (error) throw error;
 }
 
@@ -153,15 +154,18 @@ export async function listCatalog() {
 export async function saveCatalogItem(item) {
   const { id, training_categories, created_at, updated_at, ...row } = item;
   const q = id
-    ? supabase.from("training_catalog").update(row).eq("id", id)
-    : supabase.from("training_catalog").insert(row);
-  const { error } = await q;
+    ? supabase.from("training_catalog").update(row).eq("id", id).select("id").single()
+    : supabase.from("training_catalog").insert(row).select("id").single();
+  const { data, error } = await q;
   if (error) throw error.code === "23505" ? new Error(`A catalog training named "${row.name}" already exists`) : error;
+  return data?.id || id;
 }
 
 export async function insertCatalogItems(rows) {
-  const { error } = await supabase.from("training_catalog").insert(rows);
+  if (!rows.length) return [];
+  const { data, error } = await supabase.from("training_catalog").insert(rows).select("id, name");
   if (error) throw error.code === "23505" ? new Error("One or more training names already exist in the catalog") : error;
+  return data;
 }
 
 export async function deleteCatalogItems(ids) {
@@ -320,11 +324,16 @@ async function callApi(path, body) {
 }
 
 // → { id, email, email_sent, invite_link? }
-export const provisionUser = ({ full_name, email, color, role, manager_id }) =>
-  callApi("provision-user", { full_name, email, color, role, manager_id });
+// delivery: "email" (invite email) | "password" (temporary password, no email)
+export const provisionUser = ({ full_name, email, color, role, manager_id, delivery }) =>
+  callApi("provision-user", { full_name, email, color, role, manager_id, delivery });
 
 // → { email, email_sent, invite_link? }
-export const sendSetupLink = (userId) => callApi("send-setup-link", { user_id: userId });
+// deliver: "email" | "link" (just return the link to share yourself)
+export const sendSetupLink = (userId, deliver = "email") => callApi("send-setup-link", { user_id: userId, deliver });
+
+// Temporary password to share without email → { email, temp_password, sign_in_url }
+export const setTempPassword = (userId) => callApi("set-temp-password", { user_id: userId });
 
 export const setUserActive = (userId, active) => callApi("set-user-active", { user_id: userId, active });
 

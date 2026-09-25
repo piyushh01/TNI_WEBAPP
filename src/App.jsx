@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import {
   LayoutDashboard, Lightbulb, Library, Bell, Settings as SettingsIcon,
   BookOpen, LogOut, Plus, RefreshCw, Download, Search, Link2, X,
@@ -373,7 +373,7 @@ function LoginScreen({ onSignInAs, roleError, notice }) {
     setErr(""); setBusy(true);
     onSignInAs(role);
     try { await api.signIn(email.trim(), password); }
-    catch (e) { onSignInAs(null); setErr(e.message === "Invalid login credentials" ? "Incorrect email or password." : e.message || "Sign-in failed."); }
+    catch (e) { onSignInAs(null); setErr(e.message === "Invalid login credentials" ? "Incorrect email or password." : /banned/i.test(e.message || "") ? "Your account has been deactivated. Please contact your manager or HR." : e.message || "Sign-in failed."); }
     setBusy(false);
   };
   const doForgot = async () => {
@@ -989,6 +989,8 @@ function MyTrainings({ trainings, requests, onRequestApproval, onDetail, onStart
                     {isM && <span className="bg-indigo-100 text-indigo-700 text-[11px] font-bold px-2 py-0.5 rounded-full">{pd}/{pt} Parts</span>}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1 flex gap-3 flex-wrap">
+                    {t.start_date && <span><CalendarDays className="h-3 w-3 inline mr-0.5" />{fmtDate(t.start_date)} → {t.expected_end_date ? fmtDate(t.expected_end_date) : "…"}</span>}
+                    {!t.start_date && status === "pending" && <span className="text-muted-foreground">Not started yet</span>}
                     {t.due_date && <span className={cn(isOverdue(t.due_date) && status !== "approved" && "text-rose-600")}><CalendarDays className="h-3 w-3 inline mr-0.5" />Due {fmtDate(t.due_date)}</span>}
                     {!isM && t.completed_date && <span>✓ {fmtDate(t.completed_date)}</span>}
                     {cleanLinks(t.resources).length > 0 && <span className="text-indigo-600">{cleanLinks(t.resources).length} resource(s)</span>}
@@ -1015,7 +1017,7 @@ function MyTrainings({ trainings, requests, onRequestApproval, onDetail, onStart
                 </div>
                 <StatusBadge status={status} dueDate={t.due_date} />
                 <Button variant="outline" size="sm" className="shrink-0" onClick={() => onDetail(t, null)}>Details</Button>
-                {status === "pending" && <Button size="sm" className="shrink-0" disabled={busyId === t.id} onClick={() => run(t.id, () => onStart(t.id))}><Play className="h-3.5 w-3.5 mr-1" />{busyId === t.id ? "Starting…" : "Start"}</Button>}
+                {status === "pending" && <Button size="sm" className="shrink-0" onClick={() => onStart(t)}><Play className="h-3.5 w-3.5 mr-1" />Start</Button>}
                 {!isM && (status === "in_progress" || status === "sent_back") && <Button size="sm" className="shrink-0" onClick={() => onRequestApproval(t, null)}>{status === "sent_back" ? "Resubmit" : "Mark as Done"}</Button>}
                 {isM && <Button variant="ghost" size="icon" className="shrink-0 text-muted-foreground" onClick={() => toggle(t.id)}>{isE ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}</Button>}
               </div>
@@ -1246,7 +1248,7 @@ function KnowledgeDetailModal({ group, reportees, requests, onClose }) {
 }
 
 // ── DETAIL MODAL ──────────────────────────────────────────────────────────────
-function DetailModal({ training, part: focusPart, reportees, requests, onClose, onEdit, onDelete }) {
+function DetailModal({ training, part: focusPart, reportees, requests, onClose, onEdit, onDelete, onInitiate }) {
   const [confirmDel, setConfirmDel] = useState(false);
   const u = reportees.find(x => x.id === training.assigned_to) || { full_name: "Unknown", color: "#94a3b8" };
   const isM = hasParts(training); const status = getEffStatus(training);
@@ -1304,7 +1306,7 @@ function DetailModal({ training, part: focusPart, reportees, requests, onClose, 
             <div className="text-[13.5px] font-semibold">{u.full_name}</div>
             <div className="text-xs text-muted-foreground">{status === "approved" ? `Completed ${fmtDate(training.completed_date)}` : training.due_date ? `Due ${fmtDate(training.due_date)}` : "No due date"}</div>
             <div className="text-xs text-muted-foreground mt-0.5 capitalize">{MODE_OPTIONS.find(m => m.value === training.mode)?.label || training.mode}{training.trainer ? ` · Trainer: ${training.trainer}` : ""} · Priority: {training.priority}</div>
-            {training.expected_end_date && <div className="text-xs text-muted-foreground mt-0.5">Expected end: {fmtDate(training.expected_end_date)}</div>}
+            {(training.start_date || training.expected_end_date) && <div className="text-xs text-muted-foreground mt-0.5">{training.start_date ? `Start: ${fmtDate(training.start_date)} · ` : ""}{training.expected_end_date ? `Expected end: ${fmtDate(training.expected_end_date)}` : ""}</div>}
             {isM && <Progress value={Math.round(getUnits(training).done / getUnits(training).total * 100)} className="h-1.5 mt-2" />}
             {!isM && (status === "in_progress" || status === "sent_back") && <div className="flex items-center gap-2 mt-2"><Progress value={training.progress_pct || 0} className="h-1.5 flex-1" /><span className="text-[11px] text-muted-foreground">{training.progress_pct || 0}%</span></div>}
           </div>
@@ -1351,6 +1353,7 @@ function DetailModal({ training, part: focusPart, reportees, requests, onClose, 
         )}
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" className="flex-1" onClick={onClose}>Close</Button>
+          {onInitiate && status === "pending" && <Button variant="outline" onClick={() => onInitiate(training)}><Play className="h-3.5 w-3.5 mr-1.5" />Initiate</Button>}
           {onEdit && status !== "discarded" && <Button variant="outline" onClick={() => onEdit(training)}><Pencil className="h-3.5 w-3.5 mr-1.5" />Edit</Button>}
           {onDelete && <Button variant="outline" className="text-rose-600 border-rose-200 hover:bg-rose-50" onClick={() => setConfirmDel(true)}><Trash2 className="h-3.5 w-3.5 mr-1.5" />Delete</Button>}
         </DialogFooter>
@@ -1608,32 +1611,35 @@ function TrainingFields({ form, setForm, categories, showParts = true, partsLock
 
 function DateFields({ expectedEnd, setExpectedEnd, dueDate, setDueDate }) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <div className="space-y-1.5">
-        <Label>Expected Training End Date <span className="text-rose-500">*</span></Label>
-        <Input type="date" value={expectedEnd} onChange={e => setExpectedEnd(e.target.value)} />
+    <div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label>Expected End Date <span className="text-muted-foreground font-normal">(optional)</span></Label>
+          <Input type="date" value={expectedEnd} onChange={e => setExpectedEnd(e.target.value)} />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Due Date <span className="text-muted-foreground font-normal">(optional)</span></Label>
+          <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+        </div>
       </div>
-      <div className="space-y-1.5">
-        <Label>Due Date (optional)</Label>
-        <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
-      </div>
+      <p className="text-xs text-muted-foreground mt-1.5">You can leave these empty — the start and end dates are set when the training is started.</p>
     </div>
   );
 }
 
-function ReporteePicker({ reportees, memberIds, setMemberIds, onGoToSettings }) {
+function ReporteePicker({ reportees, memberIds, setMemberIds, onGoToSettings, label = "Reportees", optional = false }) {
   const toggle = id => setMemberIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
   const active = reportees.filter(u => u.is_active);
   const allOn = active.length > 0 && active.every(u => memberIds.includes(u.id));
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <Label>Reportees <span className="text-rose-500">*</span> {memberIds.length > 0 && <span className="text-muted-foreground font-normal">· {memberIds.length} selected</span>}</Label>
+        <Label>{label} {optional ? <span className="text-muted-foreground font-normal">(optional)</span> : <span className="text-rose-500">*</span>} {memberIds.length > 0 && <span className="text-muted-foreground font-normal">· {memberIds.length} selected</span>}</Label>
         {active.length > 1 && <button type="button" className="text-[12px] text-indigo-700 hover:underline" onClick={() => setMemberIds(allOn ? [] : active.map(u => u.id))}>{allOn ? "Clear all" : "Select all"}</button>}
       </div>
       {active.length === 0 ? (
         <div className="rounded-lg bg-amber-50 border border-amber-200 px-3.5 py-3 text-[13px] text-amber-800">
-          No active reportees yet. <button onClick={onGoToSettings} className="underline font-semibold">Add one in Team & Settings</button> first.
+          {onGoToSettings ? <>No active reportees yet. <button onClick={onGoToSettings} className="underline font-semibold">Add one in Team & Settings</button> first.</> : "No one to assign to yet — add users first."}
         </div>
       ) : (
         <div className="border rounded-lg divide-y max-h-52 overflow-y-auto">
@@ -1667,7 +1673,7 @@ function AssignModal({ reportees, categories, catalog, currentFY, initialCatalog
     const c = catalog.find(x => x.id === id);
     setForm(c ? formFromTemplate(c) : emptyTrainingForm());
   };
-  const ok = memberIds.length > 0 && trainingFormValid(form) && expectedEnd;
+  const ok = memberIds.length > 0 && trainingFormValid(form);
 
   const submit = async () => {
     if (!ok) return;
@@ -1675,7 +1681,7 @@ function AssignModal({ reportees, categories, catalog, currentFY, initialCatalog
     try {
       await onSubmit({
         memberIds,
-        payload: { ...trainingFormPayload(form), expected_end_date: expectedEnd, due_date: dueDate || null, fy: currentFY, status: "pending", catalog_id: catalogId || null },
+        payload: { ...trainingFormPayload(form), expected_end_date: expectedEnd || null, due_date: dueDate || null, fy: currentFY, status: "pending", catalog_id: catalogId || null },
         parts: formParts(form),
         saveToCatalog: !catalogId && saveToCatalog,
       });
@@ -1737,7 +1743,7 @@ function BulkAssignModal({ reportees, catalog, currentFY, initialIds, onSubmit, 
   const shown = catalog.filter(c => c.name.toLowerCase().includes(search.trim().toLowerCase()));
   const total = itemIds.length * memberIds.length;
   const needLink = catalog.filter(c => itemIds.includes(c.id) && !c.training_link);
-  const ok = itemIds.length > 0 && memberIds.length > 0 && expectedEnd && needLink.every(c => isValidUrl(links[c.id]));
+  const ok = itemIds.length > 0 && memberIds.length > 0 && needLink.every(c => isValidUrl(links[c.id]));
 
   const submit = async () => {
     setBusy(true); setErr("");
@@ -1822,7 +1828,7 @@ function SelfAssignModal({ catalog, myTrainings, onSubmit, onClose }) {
   const blocked = c => !c.training_link ? "No material link yet — ask your manager" : active.has(c.id) ? "Already in your list" : null;
   const toggle = id => setItemIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
   const shown = catalog.filter(c => c.name.toLowerCase().includes(search.trim().toLowerCase()) || `${c.training_categories?.group_name} ${c.training_categories?.name}`.toLowerCase().includes(search.trim().toLowerCase()));
-  const ok = itemIds.length > 0 && expectedEnd;
+  const ok = itemIds.length > 0;
 
   const submit = async () => {
     setBusy(true); setErr("");
@@ -1880,6 +1886,40 @@ function SelfAssignModal({ catalog, myTrainings, onSubmit, onClose }) {
   );
 }
 
+// ── START (INITIATE) A TRAINING WITH DATES ────────────────────────────────────
+function StartTrainingModal({ training, forOther, onSubmit, onClose }) {
+  const [start, setStart] = useState(today());
+  const [end, setEnd] = useState(training.expected_end_date || "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const bad = end && start && end < start;
+  const submit = async () => {
+    setBusy(true); setErr("");
+    try { await onSubmit(training, start, end); } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+  return (
+    <Dialog open onOpenChange={o => !o && !busy && onClose()}>
+      <ModalContent size="md">
+        <DialogHeader>
+          <DialogTitle>{forOther ? "Initiate training" : "Start training"}</DialogTitle>
+          <DialogDescription>{training.name}{forOther ? ` — for ${forOther}` : ""}. Set when {forOther ? "they" : "you"}'ll start and plan to finish.</DialogDescription>
+        </DialogHeader>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1.5"><Label htmlFor="st-start">Start date <span className="text-rose-500">*</span></Label><Input id="st-start" type="date" value={start} onChange={e => setStart(e.target.value)} /></div>
+          <div className="space-y-1.5"><Label htmlFor="st-end">End date <span className="text-rose-500">*</span></Label><Input id="st-end" type="date" value={end} min={start} onChange={e => setEnd(e.target.value)} /></div>
+        </div>
+        {bad && <FormError>End date can't be before the start date.</FormError>}
+        {err && <FormError>{err}</FormError>}
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button className="flex-[2]" disabled={!start || !end || bad || busy} onClick={submit}><Play className="h-3.5 w-3.5 mr-1.5" />{busy ? "Starting…" : forOther ? "Initiate" : "Start training"}</Button>
+        </DialogFooter>
+      </ModalContent>
+    </Dialog>
+  );
+}
+
 // ── EDIT TRAINING (manager) ───────────────────────────────────────────────────
 function EditTrainingModal({ training, categories, onSubmit, onClose }) {
   const [form, setForm] = useState(formFromTemplate(training));
@@ -1887,10 +1927,10 @@ function EditTrainingModal({ training, categories, onSubmit, onClose }) {
   const [dueDate, setDueDate] = useState(training.due_date || "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const ok = trainingFormValid(form) && expectedEnd;
+  const ok = trainingFormValid(form);
   const submit = async () => {
     setBusy(true); setErr("");
-    try { await onSubmit(training.id, { ...trainingFormPayload(form), expected_end_date: expectedEnd, due_date: dueDate || null }); }
+    try { await onSubmit(training.id, { ...trainingFormPayload(form), expected_end_date: expectedEnd || null, due_date: dueDate || null }); }
     catch (e) { setErr(e.message); }
     setBusy(false);
   };
@@ -1914,13 +1954,15 @@ function EditTrainingModal({ training, categories, onSubmit, onClose }) {
 }
 
 // ── TRAINING CATALOG ──────────────────────────────────────────────────────────
-function CatalogItemModal({ item, categories, onSubmit, onClose }) {
+function CatalogItemModal({ item, categories, people = [], onSubmit, onClose }) {
   const [form, setForm] = useState(item ? formFromTemplate(item) : emptyTrainingForm());
+  const [memberIds, setMemberIds] = useState([]);
+  const needsLink = memberIds.length > 0 && !form.training_link.trim();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const submit = async () => {
     setBusy(true); setErr("");
-    try { await onSubmit({ ...(item?.id ? { id: item.id } : {}), ...trainingFormPayload(form), parts: formParts(form) }); }
+    try { await onSubmit({ ...(item?.id ? { id: item.id } : {}), ...trainingFormPayload(form), parts: formParts(form) }, memberIds); }
     catch (e) { setErr(e.message); }
     setBusy(false);
   };
@@ -1932,10 +1974,17 @@ function CatalogItemModal({ item, categories, onSubmit, onClose }) {
           <DialogDescription>Catalog trainings can be assigned to reportees any time, singly or in bulk.</DialogDescription>
         </DialogHeader>
         <TrainingFields form={form} setForm={setForm} categories={categories} linkRequired={false} />
+        {!item && people.length > 0 && (
+          <>
+            <ReporteePicker reportees={people} memberIds={memberIds} setMemberIds={setMemberIds} label="Assign to" optional />
+            <p className="text-xs text-muted-foreground -mt-2">Selected people get this training straight away (not started). They or their manager set the start and end dates when starting it.</p>
+            {needsLink && <FormError className="text-[12px]">Add the training material link to assign it now.</FormError>}
+          </>
+        )}
         {err && <FormError>{err}</FormError>}
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
-          <Button className="flex-[2]" disabled={!trainingFormValid(form, false) || busy} onClick={submit}>{busy ? "Saving…" : item ? "Save changes" : "Add to catalog"}</Button>
+          <Button className="flex-[2]" disabled={!trainingFormValid(form, false) || needsLink || busy} onClick={submit}>{busy ? "Saving…" : item ? "Save changes" : memberIds.length ? `Add & assign to ${memberIds.length}` : "Add to catalog"}</Button>
         </DialogFooter>
       </ModalContent>
     </Dialog>
@@ -2028,6 +2077,14 @@ function sheetGrid(XLSX, ws) {
 }
 
 function parseTrainingSheet(grid, categories) {
+  // "Name | Piyush Yadav" on New Joiner / TNI sheets → who the plan is for
+  const person = (() => {
+    for (const row of grid) {
+      const i = row.findIndex(cell => norm(cell.text) === "name");
+      if (i >= 0) { const v = row.slice(i + 1).find(cell => cell.text); if (v) return v.text; }
+    }
+    return "";
+  })();
   const EMPTY = { text: "", link: "" };
   const at = (row, i) => (i >= 0 && row[i]) || EMPTY;
   const rowLink = row => normUrl(row.map(c => c.link || (c.text.match(URL_RE) || [])[0] || "").find(v => isValidUrl(v)) || "");
@@ -2054,7 +2111,7 @@ function parseTrainingSheet(grid, categories) {
         trainer: mode === "face_to_face" ? at(row, iTrainer).text || null : null, priority: "medium",
       });
     }
-    return { format: "New Joiner Training Plan", rows: out };
+    return { format: "New Joiner Training Plan", rows: out, person };
   }
 
   if (header.includes("trainings")) {
@@ -2084,7 +2141,7 @@ function parseTrainingSheet(grid, categories) {
         priority: priorityFrom(at(row, iPri).text),
       });
     }
-    return { format: "TNI Training Plan", rows: out };
+    return { format: "TNI Training Plan", rows: out, person };
   }
 
   // Simple sheet with a "Training Name" column
@@ -2102,24 +2159,35 @@ function parseTrainingSheet(grid, categories) {
       trainer: mode === "face_to_face" ? at(row, iTrainer).text || null : null, priority: priorityFrom(at(row, iPri).text),
     });
   }
-  return { format: "Training list", rows: out };
+  return { format: "Training list", rows: out, person };
 }
 
-function ImportModal({ categories, catalog, onImport, onClose }) {
+function ImportModal({ categories, catalog, people = [], onImport, onClose }) {
   const [rows, setRows] = useState(null); // [{ ...parsed, include }]
+  const [memberIds, setMemberIds] = useState([]);
+  const [detected, setDetected] = useState("");
   const [formats, setFormats] = useState([]);
   const [fileName, setFileName] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  const existing = new Set(catalog.map(c => norm(c.name)));
+  const existing = new Map(catalog.map(c => [norm(c.name), c]));
+  const assigning = memberIds.length > 0;
   const checked = (rows || []).map((r, i, all) => {
-    const errors = [];
-    if (existing.has(norm(r.name))) errors.push("already in catalog");
-    else if (all.slice(0, i).some(x => x.include && norm(x.name) === norm(r.name))) errors.push("duplicate in sheet");
-    if (!r.category_id) errors.push("pick a category");
-    if (r.mode === "face_to_face" && !r.trainer) errors.push("trainer missing");
-    return { ...r, errors };
+    const errors = [], notes = [];
+    const inCatalog = existing.get(norm(r.name));
+    if (all.slice(0, i).some(x => x.include && norm(x.name) === norm(r.name))) errors.push("duplicate in sheet");
+    else if (inCatalog) {
+      if (!assigning) errors.push("already in catalog — pick people below to assign it");
+      else if (!inCatalog.training_link) errors.push("already in catalog without a link — can't assign");
+      else notes.push("already in catalog — will be assigned");
+    }
+    if (!inCatalog) {
+      if (!r.category_id) errors.push("pick a category");
+      if (r.mode === "face_to_face" && !r.trainer) errors.push("trainer missing");
+      if (assigning && !r.training_link) notes.push("no link — added to catalog only, not assigned");
+    }
+    return { ...r, errors, notes, existingId: inCatalog?.id };
   });
   const ready = checked.filter(r => r.include && !r.errors.length);
   const setRow = (i, patch) => setRows(p => p.map((r, idx) => idx === i ? { ...r, ...patch } : r));
@@ -2136,7 +2204,12 @@ function ImportModal({ categories, catalog, onImport, onClose }) {
       if (!parsed.length) throw new Error("No trainings found. Use a New Joiner Training Plan or TNI sheet (or a sheet with a \"Training Name\" column).");
       setFormats([...new Set(parsed.map(p => p.format))]);
       const all = parsed.flatMap(p => p.rows);
-      setRows(all.map(r => ({ ...r, include: !existing.has(norm(r.name)) })));
+      setRows(all.map(r => ({ ...r, include: true })));
+      // Pre-select the person the sheet belongs to, if they're a user here.
+      const names = [...new Set(parsed.map(p => p.person).filter(Boolean))];
+      const match = people.filter(p => names.some(n => norm(n) === norm(p.full_name)));
+      setDetected(names.join(", "));
+      setMemberIds(match.map(p => p.id));
     } catch (ex) { setErr(ex.message); }
     e.target.value = "";
   };
@@ -2144,10 +2217,14 @@ function ImportModal({ categories, catalog, onImport, onClose }) {
   const doImport = async () => {
     setBusy(true); setErr("");
     try {
-      await onImport(ready.map(r => ({
-        name: r.name, description: r.description, category_id: r.category_id, training_link: r.training_link || null,
-        mode: r.mode, trainer: r.trainer, priority: r.priority, parts: [],
-      })));
+      await onImport(
+        ready.filter(r => !r.existingId).map(r => ({
+          name: r.name, description: r.description, category_id: r.category_id, training_link: r.training_link || null,
+          mode: r.mode, trainer: r.trainer, priority: r.priority, parts: [],
+        })),
+        ready.filter(r => r.existingId).map(r => r.existingId),
+        memberIds,
+      );
     } catch (ex) { setErr(ex.message); }
     setBusy(false);
   };
@@ -2182,6 +2259,7 @@ function ImportModal({ categories, catalog, onImport, onClose }) {
                       {r.training_link ? <span className="text-indigo-700 inline-flex items-center gap-0.5"><Link2 className="h-3 w-3" />link</span> : <span>no link</span>}
                     </div>
                     {r.include && r.errors.length > 0 && <div className="text-[11px] text-rose-600 mt-0.5">{r.errors.join(", ")}</div>}
+                    {r.include && !r.errors.length && r.notes.length > 0 && <div className="text-[11px] text-indigo-700 mt-0.5">{r.notes.join(", ")}</div>}
                   </div>
                   <select value={r.category_id} onChange={e => setRow(i, { category_id: e.target.value })}
                     className={cn("h-8 rounded-md border bg-card px-2 text-[12px] max-w-[210px]", !r.category_id && "border-rose-300")}>
@@ -2197,17 +2275,24 @@ function ImportModal({ categories, catalog, onImport, onClose }) {
             </div>
           </div>
         )}
+        {rows && people.length > 0 && (
+          <div>
+            {detected && <Notice className="mb-2">This sheet is for <b>{detected}</b>{memberIds.length ? " — they're selected below." : " — no user with that name was found; pick people below if needed."}</Notice>}
+            <ReporteePicker reportees={people} memberIds={memberIds} setMemberIds={setMemberIds} label="Assign these trainings to" optional />
+            <p className="text-xs text-muted-foreground mt-1.5">Selected people get every ticked training straight away (not started). They or their manager set the dates when starting each one.</p>
+          </div>
+        )}
         {err && <FormError>{err}</FormError>}
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
-          <Button className="flex-[2]" disabled={!ready.length || busy} onClick={doImport}>{busy ? "Importing…" : `Import ${ready.length} training${ready.length === 1 ? "" : "s"}`}</Button>
+          <Button className="flex-[2]" disabled={!ready.length || busy} onClick={doImport}>{busy ? "Importing…" : assigning ? `Import & assign ${ready.length} to ${memberIds.length}` : `Import ${ready.length} training${ready.length === 1 ? "" : "s"}`}</Button>
         </DialogFooter>
       </ModalContent>
     </Dialog>
   );
 }
 
-function CatalogPage({ catalog, categories, trainings, canAssign, onSave, onImport, onDelete, onAssign, onBulkAssign }) {
+function CatalogPage({ catalog, categories, trainings, people = [], canAssign, onSave, onImport, onDelete, onAssign, onBulkAssign }) {
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState(null); // null | "new" | item
   const [importOpen, setImportOpen] = useState(false);
@@ -2228,7 +2313,7 @@ function CatalogPage({ catalog, categories, trainings, canAssign, onSave, onImpo
       <div className="flex items-start justify-between gap-4 flex-wrap mb-7">
         <div>
           <h1 className="text-[23px] sm:text-[25px] font-bold tracking-[-0.025em] leading-tight text-foreground">Training Catalog</h1>
-          <p className="text-[12.5px] text-muted-foreground mt-1.5">Keep trainings ready here, then assign them to reportees — one at a time or in bulk.</p>
+          <p className="text-[12.5px] text-muted-foreground mt-1.5">Add or import trainings and assign them to people right away — or keep them here and assign later.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}><Upload className="h-4 w-4 mr-1.5" />Bulk Import</Button>
@@ -2287,8 +2372,8 @@ function CatalogPage({ catalog, categories, trainings, canAssign, onSave, onImpo
       </Card>
       <p className="text-xs text-muted-foreground mt-2">Deleting from the catalog doesn't remove trainings already assigned to people — remove those from the training's detail view.</p>
 
-      {editing && <CatalogItemModal item={editing === "new" ? null : editing} categories={categories} onClose={() => setEditing(null)} onSubmit={async item => { await onSave(item); setEditing(null); }} />}
-      {importOpen && <ImportModal categories={categories} catalog={catalog} onClose={() => setImportOpen(false)} onImport={async rows => { await onImport(rows); setImportOpen(false); }} />}
+      {editing && <CatalogItemModal item={editing === "new" ? null : editing} categories={categories} people={people} onClose={() => setEditing(null)} onSubmit={async (item, memberIds) => { await onSave(item, memberIds); setEditing(null); }} />}
+      {importOpen && <ImportModal categories={categories} catalog={catalog} people={people} onClose={() => setImportOpen(false)} onImport={async (rows, existingIds, memberIds) => { await onImport(rows, existingIds, memberIds); setImportOpen(false); }} />}
       <ConfirmDialog
         open={delItems.length > 0} danger
         title={delItems.length === 1 ? `Delete "${delItems[0].name}" from the catalog?` : `Delete ${delItems.length} trainings from the catalog?`}
@@ -2386,6 +2471,17 @@ function Reminders({ reportees, trainings, settings, onSaveSettings, onMarkRemin
 }
 
 // ── SETTINGS ──────────────────────────────────────────────────────────────────
+// Confirm before blocking someone's sign-in (easy to click by accident).
+function DeactivateDialog({ user, onConfirm, onCancel }) {
+  if (!user) return null;
+  return (
+    <ConfirmDialog open danger
+      title={`Deactivate ${user.full_name}?`}
+      body={`${user.full_name} won't be able to sign in until reactivated. Their trainings and history are kept.`}
+      confirmLabel="Deactivate" onConfirm={onConfirm} onCancel={onCancel} />
+  );
+}
+
 // Confirm step for the irreversible "Delete user".
 function DeleteUserDialog({ user, onConfirm, onCancel }) {
   if (!user) return null;
@@ -2400,37 +2496,136 @@ function DeleteUserDialog({ user, onConfirm, onCancel }) {
 
 // Result of an invite / setup-link send: either the email went out, or we show
 // the link so it can be shared manually (e.g. when SMTP isn't configured yet).
-function InviteResult({ result, onDismiss }) {
+// Ready-to-send text with someone's login details (for Teams / Outlook).
+function onboardingMessage(r) {
+  const name = (r.name || "").split(" ")[0] || "there";
+  const url = r.sign_in_url || window.location.origin;
+  return r.temp_password
+    ? `Hi ${name},\n\nYou can now sign in to Skillgo, o2h's training tracker.\n\nLink: ${url}\nEmail: ${r.email}\nTemporary password: ${r.temp_password}\n\nPick your role on the sign-in screen and sign in — you'll then be asked to choose your own password.`
+    : `Hi ${name},\n\nHere is your link to set up Skillgo, o2h's training tracker:\n${r.invite_link}\n\nOpen it, click "Accept invitation" (or "Continue") and choose your password. The link works once and expires, so please use it soon. After that, sign in at ${url} with ${r.email}.`;
+}
+
+function CopyField({ label, value, mono = true }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => { navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+  return (
+    <div className="bg-card border rounded-lg px-3 py-2 flex items-center justify-between gap-2">
+      <div className="min-w-0">
+        {label && <div className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>}
+        <div className={cn("truncate text-[12.5px]", mono && "font-mono")}>{value}</div>
+      </div>
+      <Button variant="outline" size="sm" onClick={copy}><Copy className="h-3.5 w-3.5 mr-1" />{copied ? "Copied!" : "Copy"}</Button>
+    </div>
+  );
+}
+
+// Result of an invite / setup link / temporary password.
+function InviteResult({ result, onDismiss, embedded }) {
   const [copied, setCopied] = useState(false);
   if (!result) return null;
-  const copy = () => { navigator.clipboard.writeText(result.invite_link); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+  const copyMsg = () => { navigator.clipboard.writeText(onboardingMessage(result)); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+  const ok = result.email_sent;
+  const tone = ok ? "border-emerald-200 bg-emerald-50/60" : result.temp_password || result.manual ? "border-indigo-200 bg-indigo-50/60" : "border-amber-200 bg-amber-50/60";
   return (
-    <Card className={cn("mb-5", result.email_sent ? "border-emerald-200 bg-emerald-50/60" : "border-amber-200 bg-amber-50/60")}>
-      <CardContent className="p-5">
-        {result.email_sent ? (
+    <Card className={cn(!embedded && "mb-5", tone)}>
+      <CardContent className="p-5 space-y-2.5">
+        {ok ? (
           <>
-            <div className="flex items-center gap-2 text-sm font-bold text-emerald-800 mb-1"><Mail className="h-4 w-4" />Email sent to {result.email}</div>
-            <p className="text-[13px] text-emerald-800">They'll get a link to set their own password, then sign in with their email.</p>
+            <div className="flex items-center gap-2 text-sm font-bold text-emerald-800"><Mail className="h-4 w-4" />Email sent to {result.email}</div>
+            <p className="text-[13px] text-emerald-800">They'll get a link to set their own password. If it doesn't arrive (check Junk / Quarantine), use <b>Login access</b> to copy a link or set a temporary password.</p>
+          </>
+        ) : result.temp_password ? (
+          <>
+            <div className="flex items-center gap-2 text-sm font-bold text-indigo-800"><ShieldCheck className="h-4 w-4" />Temporary password set for {result.email}</div>
+            <p className="text-[13px] text-indigo-900">Share these details privately (Teams / Outlook). They'll be asked to choose their own password after signing in.</p>
+            <CopyField label="Sign-in link" value={result.sign_in_url || window.location.origin} />
+            <CopyField label="Email" value={result.email} />
+            <CopyField label="Temporary password" value={result.temp_password} />
           </>
         ) : (
           <>
-            <div className="flex items-center gap-2 text-sm font-bold text-amber-800 mb-1"><AlertCircle className="h-4 w-4" />Account ready — but the email couldn't be sent</div>
-            <p className="text-[13px] text-amber-800 mb-2">Share this one-time link with <strong>{result.email}</strong> (Teams / Outlook). It opens Skillgo and asks them to set a password.</p>
-            <div className="bg-card border rounded-lg p-3 text-[12px] font-mono flex items-center justify-between gap-2">
-              <span className="truncate">{result.invite_link}</span>
-              <Button variant="outline" size="sm" onClick={copy}><Copy className="h-3.5 w-3.5 mr-1" />{copied ? "Copied!" : "Copy"}</Button>
+            <div className={cn("flex items-center gap-2 text-sm font-bold", result.manual ? "text-indigo-800" : "text-amber-800")}>
+              {result.manual ? <Link2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+              {result.manual ? `Setup link ready for ${result.email}` : "Account ready — but the email couldn't be sent"}
             </div>
-            {result.email_error && <p className="text-[11px] text-amber-700 mt-2">Email error: {result.email_error}</p>}
+            <p className={cn("text-[13px]", result.manual ? "text-indigo-900" : "text-amber-800")}>Share this one-time link with <strong>{result.email}</strong> (Teams / Outlook). It opens Skillgo and asks them to set a password. Any earlier link stops working.</p>
+            <CopyField value={result.invite_link} />
+            {result.email_error && <p className="text-[11px] text-amber-700">Email error: {result.email_error}</p>}
           </>
         )}
-        <Button variant="ghost" size="sm" className="mt-2" onClick={onDismiss}>Dismiss</Button>
+        <div className="flex items-center gap-2 flex-wrap pt-0.5">
+          {!ok && <Button size="sm" onClick={copyMsg}><Copy className="h-3.5 w-3.5 mr-1.5" />{copied ? "Message copied!" : "Copy message to send"}</Button>}
+          {onDismiss && <Button variant="ghost" size="sm" onClick={onDismiss}>Dismiss</Button>}
+        </div>
       </CardContent>
     </Card>
   );
 }
 
-function Settings({ me, people, reportees, trainings, currentFY, onAddReportee, onAddReporteeBulk, onToggleActive, onSendLink, onDelete, onFinalizeYear, onRefreshReportees }) {
+// "Login access" for one person: email a link, copy a link, or set a temporary password.
+function AccessDialog({ user, onSendLink, onTempPassword, onClose }) {
+  const [busy, setBusy] = useState("");
+  const [res, setRes] = useState(null);
+  const [err, setErr] = useState("");
+  if (!user) return null;
+  const run = async (key, fn) => {
+    setBusy(key); setErr("");
+    try { setRes({ ...(await fn()), name: user.full_name }); } catch (e) { setErr(e.message); }
+    setBusy("");
+  };
+  const options = [
+    { key: "email", Icon: Mail, title: "Email a setup link", body: "Sends them an email with a link to set a new password.", go: () => onSendLink(user, "email") },
+    { key: "link", Icon: Link2, title: "Copy a setup link", body: "No email — you get the link to send on Teams or Outlook yourself.", go: () => onSendLink(user, "link") },
+    { key: "password", Icon: ShieldCheck, title: "Set a temporary password", body: "No email — share their email + temporary password; they choose their own after signing in.", go: () => onTempPassword(user) },
+  ];
+  return (
+    <Dialog open onOpenChange={o => !o && !busy && onClose()}>
+      <ModalContent size="lg">
+        <DialogHeader>
+          <DialogTitle>Login access — {user.full_name}</DialogTitle>
+          <DialogDescription>{user.email} · Any new link or password replaces the previous one.</DialogDescription>
+        </DialogHeader>
+        {res ? <InviteResult result={res} embedded /> : (
+          <div className="space-y-2">
+            {options.map(o => (
+              <button key={o.key} type="button" disabled={!!busy} onClick={() => run(o.key, o.go)}
+                className="w-full text-left flex items-start gap-3 rounded-xl border bg-white px-4 py-3 hover:border-indigo-300 hover:bg-indigo-50/40 transition-colors disabled:opacity-60">
+                <span className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-800 flex items-center justify-center shrink-0">{busy === o.key ? <Spinner className="h-4 w-4" /> : <o.Icon className="h-4 w-4" />}</span>
+                <span><span className="block text-[13.5px] font-semibold">{o.title}</span><span className="block text-[12px] text-muted-foreground">{o.body}</span></span>
+              </button>
+            ))}
+          </div>
+        )}
+        {err && <FormError>{err}</FormError>}
+        <DialogFooter><Button variant="outline" className="w-full" disabled={!!busy} onClick={onClose}>{res ? "Done" : "Cancel"}</Button></DialogFooter>
+      </ModalContent>
+    </Dialog>
+  );
+}
+
+// Choose how a new person gets their login.
+function DeliveryChoice({ value, onChange }) {
+  return (
+    <div className="space-y-1.5">
+      <Label>How should they get their login?</Label>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {[["email", "Send invite email", "They set their own password from the email"], ["password", "Temporary password", "No email — you share the details yourself"]].map(([v, t, d]) => (
+          <button key={v} type="button" onClick={() => onChange(v)} aria-pressed={value === v}
+            className={cn("text-left rounded-lg border px-3 py-2 transition-colors", value === v ? "border-indigo-500 bg-indigo-50" : "bg-white hover:border-[#c5cec7]")}>
+            <span className={cn("block text-[12.5px] font-semibold", value === v && "text-indigo-800")}>{t}</span>
+            <span className="block text-[11px] text-muted-foreground">{d}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Settings({ me, people, reportees, trainings, currentFY, onAddReportee, onAddReporteeBulk, onToggleActive, onSendLink, onTempPassword, onDelete, onFinalizeYear, onRefreshReportees }) {
   const [toDelete, setToDelete] = useState(null);
+  const [access, setAccess] = useState(null);
+  const [toDeactivate, setToDeactivate] = useState(null);
+  const [delivery, setDelivery] = useState("email");
   const [bulkOpen, setBulkOpen] = useState(false);
   const [addForm, setAddForm] = useState(false);
   const [newU, setNewU] = useState({ full_name: "", email: "", color: COLORS[0] });
@@ -2445,8 +2640,8 @@ function Settings({ me, people, reportees, trainings, currentFY, onAddReportee, 
     if (!newU.full_name.trim() || !newU.email.trim()) return;
     setCreating(true); setErr("");
     try {
-      const res = await onAddReportee({ full_name: newU.full_name.trim(), email: newU.email.trim(), color: newU.color, role: "reportee" });
-      setCreated(res); setNewU({ full_name: "", email: "", color: COLORS[0] }); setAddForm(false);
+      const res = await onAddReportee({ full_name: newU.full_name.trim(), email: newU.email.trim(), color: newU.color, role: "reportee", delivery });
+      setCreated({ ...res, name: newU.full_name.trim() }); setNewU({ full_name: "", email: "", color: COLORS[0] }); setAddForm(false);
       await onRefreshReportees();
     } catch (e) { setErr(e.message); }
     setCreating(false);
@@ -2468,6 +2663,8 @@ function Settings({ me, people, reportees, trainings, currentFY, onAddReportee, 
       </div>
 
       <InviteResult result={created} onDismiss={() => setCreated(null)} />
+      {access && <AccessDialog user={access} onSendLink={onSendLink} onTempPassword={onTempPassword} onClose={() => setAccess(null)} />}
+      <DeactivateDialog user={toDeactivate} onCancel={() => setToDeactivate(null)} onConfirm={() => { const u = toDeactivate; setToDeactivate(null); rowAction(u.id, () => onToggleActive(u)); }} />
       <DeleteUserDialog user={toDelete} onCancel={() => setToDelete(null)} onConfirm={() => { const u = toDelete; setToDelete(null); rowAction(u.id, () => onDelete(u)); }} />
       {bulkOpen && <BulkUsersModal mode="manager" people={people} me={me} onCreate={onAddReporteeBulk || onAddReportee} onDone={onRefreshReportees} onClose={() => setBulkOpen(false)} />}
       <Card className="mb-4">
@@ -2490,8 +2687,8 @@ function Settings({ me, people, reportees, trainings, currentFY, onAddReportee, 
                 <span className="text-xs text-muted-foreground">Color:</span>
                 <div className="flex gap-1.5 flex-wrap">{COLORS.map(c => <button key={c} onClick={() => setNewU(p => ({ ...p, color: c }))} className={cn("h-[22px] w-[22px] rounded-full transition", newU.color === c ? "ring-2 ring-offset-2 ring-foreground" : "")} style={{ background: c, width: 22, height: 22 }} />)}</div>
               </div>
-              <p className="text-xs text-muted-foreground mb-2.5">They'll get an email with a link to set their password.</p>
-              <div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => setAddForm(false)}>Cancel</Button><Button size="sm" disabled={!newU.full_name.trim() || !newU.email.trim() || creating} onClick={addM}>{creating ? "Creating…" : "Add & send invite"}</Button></div>
+              <div className="mb-3"><DeliveryChoice value={delivery} onChange={setDelivery} /></div>
+              <div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => setAddForm(false)}>Cancel</Button><Button size="sm" disabled={!newU.full_name.trim() || !newU.email.trim() || creating} onClick={addM}>{creating ? "Creating…" : delivery === "email" ? "Add & send invite" : "Add & create password"}</Button></div>
             </div>
           )}
           {err && <FormError className="mb-2">{err}</FormError>}
@@ -2502,8 +2699,8 @@ function Settings({ me, people, reportees, trainings, currentFY, onAddReportee, 
                 <div className="flex-1 min-w-0"><div className="text-[13px] font-medium truncate">{u.full_name}</div><div className="text-[11px] text-muted-foreground truncate">{u.email}</div></div>
                 {u.must_change_password && u.is_active && <span className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-amber-100 text-amber-700">Invite pending</span>}
                 <span className={cn("text-[11px] font-semibold px-2.5 py-1 rounded-md", u.is_active ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground")}>{u.is_active ? "Active" : "Inactive"}</span>
-                {u.is_active && <Button variant="outline" size="sm" disabled={busyId === u.id} onClick={() => rowAction(u.id, () => onSendLink(u))}><Send className="h-3.5 w-3.5 mr-1" />Send setup link</Button>}
-                <Button variant="outline" size="sm" disabled={busyId === u.id} onClick={() => rowAction(u.id, () => onToggleActive(u))}>{u.is_active ? "Deactivate" : "Reactivate"}</Button>
+                {u.is_active && <Button variant="outline" size="sm" disabled={busyId === u.id} onClick={() => setAccess(u)}><ShieldCheck className="h-3.5 w-3.5 mr-1" />Login access</Button>}
+                <Button variant="outline" size="sm" disabled={busyId === u.id} onClick={() => u.is_active ? setToDeactivate(u) : rowAction(u.id, () => onToggleActive(u))}>{u.is_active ? "Deactivate" : "Reactivate"}</Button>
                 <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-rose-600" title="Delete user" aria-label={`Delete ${u.full_name}`} disabled={busyId === u.id} onClick={() => setToDelete(u)}><Trash2 className="h-4 w-4" /></Button>
               </div>
             ))}
@@ -2848,6 +3045,140 @@ function ProgressCharts({ trainings, requests, fy, peopleCount }) {
   );
 }
 
+// ── TRAININGS EXPLORER (HR overview) ──────────────────────────────────────────
+// Who is doing which training, in detail: grouped by training, or every assignment.
+const STATUS_VIEW = {
+  not_started: "Not started", in_progress: "In progress", awaiting: "Awaiting approval",
+  sent_back: "Sent back", completed: "Completed", overdue: "Overdue",
+};
+const viewStatus = t => {
+  const s = getEffStatus(t);
+  if (isOpenStatus(s) && isOverdue(t.due_date)) return "overdue";
+  return { pending: "not_started", in_progress: "in_progress", submitted: "awaiting", sent_back: "sent_back", approved: "completed" }[s] || "not_started";
+};
+const trainingPct = t => { const u = getUnits(t); if (hasParts(t)) return Math.round(u.done / u.total * 100); if (t.status === "pending") return 0; return t.status === "approved" ? 100 : t.progress_pct || 0; };
+
+function TrainingsExplorer({ trainings, people, onDetail }) {
+  const [mode, setMode] = useState("training");
+  const [q, setQ] = useState("");
+  const [statusF, setStatusF] = useState("all");
+  const [catF, setCatF] = useState("all");
+  const [open, setOpen] = useState(null);
+  const nameOf = id => people.find(p => p.id === id)?.full_name || "—";
+  const personOf = id => people.find(p => p.id === id);
+  const live = trainings.filter(t => t.status !== "discarded");
+  const cats = [...new Set(live.map(t => t.training_categories?.name).filter(Boolean))].sort();
+  const needle = q.trim().toLowerCase();
+  const rows = live.filter(t =>
+    (statusF === "all" || viewStatus(t) === statusF) &&
+    (catF === "all" || t.training_categories?.name === catF) &&
+    (!needle || t.name.toLowerCase().includes(needle) || nameOf(t.assigned_to).toLowerCase().includes(needle)));
+
+  const groups = Object.values(rows.reduce((acc, t) => {
+    const k = t.name.trim().toLowerCase();
+    const g = acc[k] ||= { key: k, name: t.name, category: t.training_categories, items: [] };
+    g.items.push(t); return acc;
+  }, {})).map(g => ({ ...g, count: s => g.items.filter(t => viewStatus(t) === s).length })).sort((a, b) => b.items.length - a.items.length || a.name.localeCompare(b.name));
+
+  const Th = ({ children, left }) => <th className={cn("px-3 h-10 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-[#858d87] whitespace-nowrap", left ? "text-left" : "text-center")}>{children}</th>;
+  const n = v => v ? <span className="font-semibold">{v}</span> : <span className="text-muted-foreground/40">0</span>;
+  const tone = { completed: "green", in_progress: "green", awaiting: "violet", sent_back: "orange", overdue: "red", not_started: "amber" };
+  const Pill = ({ t }) => { const s = viewStatus(t); const cls = { green: "bg-emerald-100 text-emerald-700 border-emerald-200", violet: "bg-violet-100 text-violet-700 border-violet-200", orange: "bg-orange-100 text-orange-700 border-orange-200", red: "bg-rose-100 text-rose-700 border-rose-200", amber: "bg-amber-100 text-amber-700 border-amber-200" }[tone[s]]; return <Badge className={cn("font-medium", cls)}>{STATUS_VIEW[s]}</Badge>; };
+  const dates = t => t.start_date ? `${fmtDate(t.start_date)} → ${t.expected_end_date ? fmtDate(t.expected_end_date) : "…"}` : t.expected_end_date ? `ends ${fmtDate(t.expected_end_date)}` : "—";
+
+  return (
+    <div className="mt-8">
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+        <SectionLabel className="mb-0">Trainings — who is doing what</SectionLabel>
+        <div className="inline-flex rounded-lg border border-input bg-white p-0.5" role="group" aria-label="View">
+          {[["training", "By training"], ["all", "All assignments"]].map(([m, l]) => (
+            <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)}
+              className={cn("px-3 h-7 rounded-md text-[12px] font-semibold transition-colors", mode === m ? "bg-indigo-50 text-indigo-800" : "text-muted-foreground hover:text-foreground")}>{l}</button>
+          ))}
+        </div>
+      </div>
+      <div className="flex gap-2.5 mb-3 flex-wrap">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Search training or person..." className="pl-9" />
+        </div>
+        <Select value={statusF} onValueChange={setStatusF}>
+          <SelectTrigger className="w-[170px]"><SelectValue /></SelectTrigger>
+          <SelectContent><SelectItem value="all">All statuses</SelectItem>{Object.entries(STATUS_VIEW).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
+        </Select>
+        <Select value={catF} onValueChange={setCatF}>
+          <SelectTrigger className="w-[200px]"><SelectValue /></SelectTrigger>
+          <SelectContent><SelectItem value="all">All categories</SelectItem>{cats.map(k => <SelectItem key={k} value={k}>{k}</SelectItem>)}</SelectContent>
+        </Select>
+      </div>
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          {mode === "training" ? (
+            <table className="w-full text-sm">
+              <thead><tr className="bg-table-head border-b">
+                <Th left>Training</Th><Th>Assigned</Th><Th>Not started</Th><Th>In progress</Th><Th>Awaiting</Th><Th>Completed</Th><Th>Overdue</Th><Th></Th>
+              </tr></thead>
+              <tbody>
+                {groups.map(g => (
+                  <Fragment key={g.key}>
+                    <tr className="border-b hover:bg-[#f7f9f7] transition-colors cursor-pointer" onClick={() => setOpen(open === g.key ? null : g.key)}>
+                      <td className="px-3 py-3"><div className="font-medium">{g.name}</div><div className="text-[11px] text-muted-foreground">{g.category ? `${g.category.group_name} · ${g.category.name}` : "No category"}</div></td>
+                      <td className="px-3 py-3 text-center">{n(g.items.length)}</td>
+                      <td className="px-3 py-3 text-center">{n(g.count("not_started"))}</td>
+                      <td className="px-3 py-3 text-center">{n(g.count("in_progress") + g.count("sent_back"))}</td>
+                      <td className="px-3 py-3 text-center">{n(g.count("awaiting"))}</td>
+                      <td className="px-3 py-3 text-center text-emerald-700">{n(g.count("completed"))}</td>
+                      <td className="px-3 py-3 text-center text-rose-600">{n(g.count("overdue"))}</td>
+                      <td className="px-3 py-3 text-right"><ChevronDown className={cn("h-4 w-4 inline text-muted-foreground transition-transform", open === g.key && "rotate-180")} /></td>
+                    </tr>
+                    {open === g.key && (
+                      <tr className="border-b bg-table-head/60"><td colSpan={8} className="px-4 py-3">
+                        <div className="space-y-1.5">
+                          {g.items.map(t => { const p = personOf(t.assigned_to); return (
+                            <button key={t.id} onClick={() => onDetail(t, null)} className="w-full flex items-center gap-3 rounded-lg bg-white border px-3 py-2 text-left hover:border-indigo-200 transition-colors">
+                              <UAvatar name={p?.full_name || "?"} color={p?.color} className="h-6 w-6" />
+                              <span className="font-medium text-[13px] w-44 truncate">{p?.full_name || "—"}</span>
+                              <span className="text-[12px] text-muted-foreground flex-1 truncate">{dates(t)}</span>
+                              <span className="w-28 hidden sm:flex items-center gap-2"><Progress value={trainingPct(t)} className="h-1.5 flex-1" /><span className="text-[11px] tabular-nums w-8 text-right">{trainingPct(t)}%</span></span>
+                              <Pill t={t} />
+                            </button>
+                          ); })}
+                        </div>
+                      </td></tr>
+                    )}
+                  </Fragment>
+                ))}
+                {groups.length === 0 && <tr><td colSpan={8} className="text-center text-muted-foreground py-8">No trainings match.</td></tr>}
+              </tbody>
+            </table>
+          ) : (
+            <table className="w-full text-sm">
+              <thead><tr className="bg-table-head border-b">
+                <Th left>Employee</Th><Th left>Training</Th><Th left>Status</Th><Th left>Start → end</Th><Th left>Due</Th><Th>Progress</Th><Th left>Completed</Th>
+              </tr></thead>
+              <tbody>
+                {rows.slice().sort((a, b) => nameOf(a.assigned_to).localeCompare(nameOf(b.assigned_to)) || a.name.localeCompare(b.name)).map(t => { const p = personOf(t.assigned_to); return (
+                  <tr key={t.id} className="border-b last:border-0 hover:bg-[#f7f9f7] transition-colors cursor-pointer" onClick={() => onDetail(t, null)}>
+                    <td className="px-3 py-2.5"><div className="flex items-center gap-2"><UAvatar name={p?.full_name || "?"} color={p?.color} className="h-6 w-6" /><div className="min-w-0"><div className="font-medium truncate">{p?.full_name || "—"}</div><div className="text-[11px] text-muted-foreground truncate">{nameOf(p?.manager_id)}</div></div></div></td>
+                    <td className="px-3 py-2.5"><div className="font-medium">{t.name}</div><div className="text-[11px] text-muted-foreground">{t.training_categories?.name || "—"}{isSelfAssigned(t) ? " · self-assigned" : ""}</div></td>
+                    <td className="px-3 py-2.5"><Pill t={t} /></td>
+                    <td className="px-3 py-2.5 text-[12.5px] whitespace-nowrap">{dates(t)}</td>
+                    <td className={cn("px-3 py-2.5 text-[12.5px] whitespace-nowrap", viewStatus(t) === "overdue" && "text-rose-600 font-medium")}>{t.due_date ? fmtDate(t.due_date) : "—"}</td>
+                    <td className="px-3 py-2.5 min-w-[120px]"><div className="flex items-center gap-2"><Progress value={trainingPct(t)} className="h-1.5 flex-1" /><span className="text-[11px] tabular-nums w-8 text-right">{trainingPct(t)}%</span></div></td>
+                    <td className="px-3 py-2.5 text-[12.5px] whitespace-nowrap">{t.completed_date ? fmtDate(t.completed_date) : "—"}</td>
+                  </tr>
+                ); })}
+                {rows.length === 0 && <tr><td colSpan={7} className="text-center text-muted-foreground py-8">No trainings match.</td></tr>}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </Card>
+      <p className="text-xs text-muted-foreground mt-2">{rows.length} assignment{rows.length === 1 ? "" : "s"} shown · click any row for full details.</p>
+    </div>
+  );
+}
+
 // ── OVERVIEW (admin / HR, read-only) ──────────────────────────────────────────
 // Org-wide picture: who has how many trainings, their status, and how each
 // manager is keeping up with approvals.
@@ -2979,7 +3310,7 @@ function AdminOverview({ people, trainings, requests, onDetail, onExport, onRefr
                   <Td>{c.total}</Td><Td>{num(c.notStarted)}</Td><Td>{num(c.inProgress + c.sentBack, "text-indigo-700")}</Td>
                   <Td>{num(c.awaiting, "text-violet-700 font-semibold")}</Td><Td>{num(c.completed, "text-emerald-600 font-semibold")}</Td>
                   <Td>{num(c.overdue, "text-rose-600 font-semibold")}</Td>
-                  <td className="px-3 py-3 min-w-[130px]">{c.total ? <div className="flex items-center gap-2"><Progress value={c.pct} className="h-1.5 flex-1" /><span className={cn("text-[12px] font-semibold w-9 text-right", pctTone(c.pct))}>{c.pct}%</span></div> : <span className="text-muted-foreground/40 text-[12px]">No trainings</span>}</td>
+                  <td className="px-3 py-3 min-w-[110px]">{c.total ? <div className="flex items-center gap-2"><Progress value={c.pct} className="h-1.5 flex-1" /><span className={cn("text-[12px] font-semibold w-9 text-right", pctTone(c.pct))}>{c.pct}%</span></div> : <span className="text-muted-foreground/40 text-[12px]">No trainings</span>}</td>
                   <Td>{c.total > 0 && <Button size="sm" variant="ghost" className="text-indigo-700" onClick={() => setMember(u)}>View <ChevronRight className="h-3.5 w-3.5 ml-0.5" /></Button>}</Td>
                 </tr>
               ); })}
@@ -2988,6 +3319,8 @@ function AdminOverview({ people, trainings, requests, onDetail, onExport, onRefr
           </table>
         </div>
       </Card>
+
+      <TrainingsExplorer trainings={fyT} people={people} onDetail={onDetail} />
 
       <MemberTrainingsModal member={member} onClose={() => setMember(null)} fyFilter={fy}
         trainings={fyT.filter(t => member && t.assigned_to === member.id)} onDetail={onDetail} onDelete={onDeleteTraining} />
@@ -3015,6 +3348,7 @@ function BulkUsersModal({ mode, people, me, onCreate, onClose, onDone }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [copied, setCopied] = useState(false);
+  const [delivery, setDelivery] = useState("email");
   const byEmail = new Map(people.map(p => [p.email.toLowerCase(), p]));
 
   const downloadTemplate = () => {
@@ -3087,10 +3421,10 @@ function BulkUsersModal({ mode, people, me, onCreate, onClose, onDone }) {
         const res = await onCreate({
           full_name: r.full_name, email: r.email, role: r.role,
           manager_id: isAdmin ? (r.role === "admin" ? null : ids.get(r.manager_email) || null) : me.id,
-          color: COLORS[i % COLORS.length],
+          color: COLORS[i % COLORS.length], delivery,
         });
         ids.set(r.email, res.id);
-        out[r.email] = { ok: true, email_sent: res.email_sent, invite_link: res.invite_link };
+        out[r.email] = { ok: true, email_sent: res.email_sent, invite_link: res.invite_link, temp_password: res.temp_password, sign_in_url: res.sign_in_url };
       } catch (ex) { out[r.email] = { ok: false, error: ex.message }; }
       setResults({ ...out });
     }
@@ -3098,10 +3432,13 @@ function BulkUsersModal({ mode, people, me, onCreate, onClose, onDone }) {
     onDone();
   };
 
-  const links = results ? Object.entries(results).filter(([, v]) => v.ok && !v.email_sent && v.invite_link) : [];
+  const links = results ? Object.entries(results).filter(([, v]) => v.ok && !v.email_sent && (v.invite_link || v.temp_password)) : [];
   const copyLinks = () => {
     const name = e => rows.find(r => r.email === e)?.full_name || e;
-    navigator.clipboard.writeText(links.map(([e, v]) => `${name(e)} <${e}>: ${v.invite_link}`).join("\n"));
+    const url = window.location.origin;
+    navigator.clipboard.writeText(links.map(([e, v]) => v.temp_password
+      ? `${name(e)} <${e}> — sign in at ${url} · temporary password: ${v.temp_password}`
+      : `${name(e)} <${e}>: ${v.invite_link}`).join("\n"));
     setCopied(true); setTimeout(() => setCopied(false), 2000);
   };
   const done = results && Object.keys(results).length === ready.length && !busy;
@@ -3123,6 +3460,7 @@ function BulkUsersModal({ mode, people, me, onCreate, onClose, onDone }) {
               <Upload className="h-4 w-4" />{fileName || "Choose .xlsx / .csv file"}
               <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onFile} />
             </label>
+            <DeliveryChoice value={delivery} onChange={setDelivery} />
           </>
         )}
         {rows && (
@@ -3143,6 +3481,7 @@ function BulkUsersModal({ mode, people, me, onCreate, onClose, onDone }) {
                         : !res ? (busy ? <Spinner className="h-4 w-4" /> : <Check className="h-4 w-4 text-emerald-600 inline" />)
                         : !res.ok ? <span className="text-rose-600">{res.error}</span>
                         : res.email_sent ? <span className="text-emerald-700 font-medium">Invite emailed</span>
+                        : res.temp_password ? <span className="text-indigo-800 font-medium font-mono">{res.temp_password}</span>
                         : <span className="text-amber-700 font-medium">Added — share link</span>}
                     </span>
                   </div>
@@ -3152,8 +3491,8 @@ function BulkUsersModal({ mode, people, me, onCreate, onClose, onDone }) {
             {!results && ready.length < rows.length && <p className="text-xs text-muted-foreground mt-1.5">Rows with errors are skipped. Fix them in the sheet and upload again.</p>}
             {links.length > 0 && (
               <Notice tone="warning" className="mt-3 flex items-center justify-between gap-3 flex-wrap">
-                <span>{links.length} invite email(s) couldn't be sent. Copy their one-time links and share them on Teams / Outlook.</span>
-                <Button size="sm" variant="outline" onClick={copyLinks}><Copy className="h-3.5 w-3.5 mr-1.5" />{copied ? "Copied!" : "Copy links"}</Button>
+                <span>{delivery === "password" ? `${links.length} temporary password(s) created. Copy the login details and share them privately.` : `${links.length} invite email(s) couldn't be sent. Copy their one-time links and share them on Teams / Outlook.`}</span>
+                <Button size="sm" variant="outline" onClick={copyLinks}><Copy className="h-3.5 w-3.5 mr-1.5" />{copied ? "Copied!" : delivery === "password" ? "Copy login details" : "Copy links"}</Button>
               </Notice>
             )}
           </div>
@@ -3174,7 +3513,7 @@ function BulkUsersModal({ mode, people, me, onCreate, onClose, onDone }) {
 
 // ── USERS (admin / HR) ────────────────────────────────────────────────────────
 function UserFormModal({ user, managers, onSubmit, onClose }) {
-  const [f, setF] = useState({ full_name: user?.full_name || "", email: user?.email || "", role: user?.role || "reportee", manager_id: user?.manager_id || "", color: user?.color || COLORS[0] });
+  const [f, setF] = useState({ full_name: user?.full_name || "", email: user?.email || "", role: user?.role || "reportee", manager_id: user?.manager_id || "", color: user?.color || COLORS[0], delivery: "email" });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
@@ -3191,7 +3530,7 @@ function UserFormModal({ user, managers, onSubmit, onClose }) {
       <ModalContent size="md">
         <DialogHeader>
           <DialogTitle>{user ? "Edit User" : "Add User"}</DialogTitle>
-          <DialogDescription>{user ? user.email : "They'll get an email with a link to set their password."}</DialogDescription>
+          <DialogDescription>{user ? user.email : "Choose how they'll get their login below."}</DialogDescription>
         </DialogHeader>
         <div className="space-y-1.5"><Label>Full name <span className="text-rose-500">*</span></Label><Input value={f.full_name} onChange={e => set("full_name", e.target.value)} /></div>
         {!user && <div className="space-y-1.5"><Label>Email <span className="text-rose-500">*</span></Label><Input type="email" value={f.email} onChange={e => set("email", e.target.value)} placeholder="name@o2h.com" /></div>}
@@ -3216,18 +3555,21 @@ function UserFormModal({ user, managers, onSubmit, onClose }) {
             {f.role === "reporting_manager" && <p className="text-xs text-muted-foreground">Set this if the manager also reports to someone — their senior can then assign and approve their trainings.</p>}
           </div>
         )}
+        {!user && <DeliveryChoice value={f.delivery} onChange={v => set("delivery", v)} />}
         {err && <FormError>{err}</FormError>}
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
-          <Button className="flex-[2]" disabled={!ok || busy} onClick={submit}>{busy ? "Saving…" : user ? "Save changes" : "Add & send invite"}</Button>
+          <Button className="flex-[2]" disabled={!ok || busy} onClick={submit}>{busy ? "Saving…" : user ? "Save changes" : f.delivery === "email" ? "Add & send invite" : "Add & create password"}</Button>
         </DialogFooter>
       </ModalContent>
     </Dialog>
   );
 }
 
-function UsersAdmin({ me, people, onCreate, onCreateBulk, onUpdate, onToggleActive, onSendLink, onDelete, onRefresh }) {
+function UsersAdmin({ me, people, onCreate, onCreateBulk, onUpdate, onToggleActive, onSendLink, onTempPassword, onDelete, onRefresh }) {
   const [toDelete, setToDelete] = useState(null);
+  const [access, setAccess] = useState(null);
+  const [toDeactivate, setToDeactivate] = useState(null);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [roleF, setRoleF] = useState("all");
@@ -3258,6 +3600,8 @@ function UsersAdmin({ me, people, onCreate, onCreateBulk, onUpdate, onToggleActi
         </div>
       </div>
       <InviteResult result={result} onDismiss={() => setResult(null)} />
+      {access && <AccessDialog user={access} onSendLink={onSendLink} onTempPassword={onTempPassword} onClose={() => setAccess(null)} />}
+      <DeactivateDialog user={toDeactivate} onCancel={() => setToDeactivate(null)} onConfirm={() => { const u = toDeactivate; setToDeactivate(null); rowAction(u.id, () => onToggleActive(u)); }} />
       <DeleteUserDialog user={toDelete} onCancel={() => setToDelete(null)} onConfirm={() => { const u = toDelete; setToDelete(null); rowAction(u.id, () => onDelete(u)); }} />
       {bulkOpen && <BulkUsersModal mode="admin" people={people} me={me} onCreate={onCreateBulk || onCreate} onDone={onRefresh} onClose={() => setBulkOpen(false)} />}
       <div className="flex gap-2.5 mb-4 flex-wrap">
@@ -3305,8 +3649,8 @@ function UsersAdmin({ me, people, onCreate, onCreateBulk, onUpdate, onToggleActi
                   <td className="px-3 py-3">
                     <div className="flex gap-1.5 justify-end">
                       <Button size="icon" variant="ghost" className="text-muted-foreground" title="Edit" onClick={() => setEditing(p)}><Pencil className="h-4 w-4" /></Button>
-                      {p.is_active && p.id !== me.id && <Button size="sm" variant="outline" disabled={busyId === p.id} onClick={() => rowAction(p.id, () => onSendLink(p))}><Send className="h-3.5 w-3.5 mr-1" />Setup link</Button>}
-                      {p.id !== me.id && <Button size="sm" variant="outline" disabled={busyId === p.id} onClick={() => rowAction(p.id, () => onToggleActive(p))}>{p.is_active ? "Deactivate" : "Reactivate"}</Button>}
+                      {p.is_active && p.id !== me.id && <Button size="sm" variant="outline" disabled={busyId === p.id} onClick={() => setAccess(p)}><ShieldCheck className="h-3.5 w-3.5 mr-1" />Login access</Button>}
+                      {p.id !== me.id && <Button size="sm" variant="outline" disabled={busyId === p.id} onClick={() => p.is_active ? setToDeactivate(p) : rowAction(p.id, () => onToggleActive(p))}>{p.is_active ? "Deactivate" : "Reactivate"}</Button>}
                       {p.id !== me.id && <Button size="icon" variant="ghost" className="text-muted-foreground hover:text-rose-600" title="Delete user" aria-label={`Delete ${p.full_name}`} disabled={busyId === p.id} onClick={() => setToDelete(p)}><Trash2 className="h-4 w-4" /></Button>}
                     </div>
                   </td>
@@ -3321,7 +3665,7 @@ function UsersAdmin({ me, people, onCreate, onCreateBulk, onUpdate, onToggleActi
         <UserFormModal
           user={editing === "new" ? null : editing} managers={managers} onClose={() => setEditing(null)}
           onSubmit={async f => {
-            if (editing === "new") setResult(await onCreate(f));
+            if (editing === "new") setResult({ ...(await onCreate(f)), name: f.full_name });
             else await onUpdate(editing.id, { full_name: f.full_name, role: f.role, manager_id: f.manager_id });
             setEditing(null);
           }}
@@ -3459,6 +3803,7 @@ export default function App() {
   const [addModal, setAdd] = useState(false);         // false | { catalogId? }
   const [bulkModal, setBulk] = useState(null);        // null | { ids }
   const [selfAssignOpen, setSelfAssignOpen] = useState(false);
+  const [startT, setStartT] = useState(null); // { training, forOther? }
   const [editTarget, setEditT] = useState(null);
   const [toast, setToast] = useState(null); // { tone, text }
   const [detailTarget, setDetailT] = useState(null);
@@ -3603,7 +3948,13 @@ svg.lucide{display:block;flex-shrink:0}
     await loadData();
   };
 
-  const startTraining = async (id) => { await api.startTraining(id); await loadData(); };
+  // Reportee starts their own training / manager initiates a reportee's, both with dates.
+  const startTraining = async (t, start, end) => {
+    if (t.assigned_to === profile.id) await api.startTraining(t.id, start, end);
+    else await api.updateTraining(t.id, { start_date: start, expected_end_date: end, status: "in_progress" });
+    setStartT(null); setDetailT(null);
+    await loadData();
+  };
   const updateProgress = async (id, pct) => { await api.updateProgress(id, pct); await loadData(); };
 
   const addTraining = async ({ memberIds, payload, parts, saveToCatalog }) => {
@@ -3623,6 +3974,23 @@ svg.lucide{display:block;flex-shrink:0}
     notifyAssignees(ids);
   };
 
+  // Assign catalog trainings to people (skips ones they already have open). Returns new ids.
+  const assignFromCatalog = async (items, personIds, expectedEnd = null, dueDate = null) => {
+    const ids = [];
+    for (const c of items.filter(x => x.training_link)) {
+      for (const assigned_to of personIds) {
+        if (trainings.some(t => t.assigned_to === assigned_to && t.catalog_id === c.id && !["approved", "discarded"].includes(t.status))) continue;
+        ids.push((await api.createTraining({
+          name: c.name, description: c.description || null, category_id: c.category_id, training_link: c.training_link, mode: c.mode,
+          trainer: c.trainer, priority: c.priority, resources: c.resources || [],
+          expected_end_date: expectedEnd || null, due_date: dueDate || null, fy: currentFY, status: "pending",
+          catalog_id: c.id, assigned_to,
+        }, (c.parts || []).map(p => ({ title: p.title, part_link: p.part_link || null })))).id);
+      }
+    }
+    return ids;
+  };
+
   const bulkAssign = async ({ items, memberIds, expectedEnd, dueDate }) => {
     const ids = [];
     for (const c of items) {
@@ -3632,7 +4000,7 @@ svg.lucide{display:block;flex-shrink:0}
         ids.push((await api.createTraining({
           name: c.name, description: c.description || null, category_id: c.category_id, training_link: c.training_link, mode: c.mode,
           trainer: c.trainer, priority: c.priority, resources: c.resources || [],
-          expected_end_date: expectedEnd, due_date: dueDate, fy: currentFY, status: "pending",
+          expected_end_date: expectedEnd || null, due_date: dueDate, fy: currentFY, status: "pending",
           catalog_id: c.id, assigned_to,
         }, (c.parts || []).map(p => ({ title: p.title, part_link: p.part_link || null })))).id);
       }
@@ -3662,7 +4030,7 @@ svg.lucide{display:block;flex-shrink:0}
       ids.push((await api.createTraining({
         name: c.name, description: c.description || null, category_id: c.category_id, training_link: c.training_link, mode: c.mode,
         trainer: c.trainer, priority: c.priority, resources: c.resources || [],
-        expected_end_date: expectedEnd, due_date: dueDate, fy: getFY(), status: "pending",
+        expected_end_date: expectedEnd || null, due_date: dueDate, fy: getFY(), status: "pending",
         catalog_id: c.id, assigned_to: profile.id,
       }, (c.parts || []).map(p => ({ title: p.title, part_link: p.part_link || null })))).id);
     }
@@ -3680,8 +4048,26 @@ svg.lucide{display:block;flex-shrink:0}
   const editTraining = async (id, patch) => { await api.updateTraining(id, patch); setEditT(null); setDetailT(null); await loadData(); };
   const deleteTraining = async (t) => { await api.deleteTraining(t.id); setDetailT(null); await loadData(); };
 
-  const saveCatalogItem = async (item) => { await api.saveCatalogItem(item); setCatalog(await api.listCatalog()); };
-  const importCatalog = async (rows) => { await api.insertCatalogItems(rows); setCatalog(await api.listCatalog()); };
+  const saveCatalogItem = async (item, memberIds = []) => {
+    const id = await api.saveCatalogItem(item);
+    const cat = await api.listCatalog(); setCatalog(cat);
+    if (memberIds.length) {
+      const ids = await assignFromCatalog(cat.filter(x => x.id === id), memberIds);
+      await loadData();
+      notifyAssignees(ids);
+    }
+  };
+  const importCatalog = async (rows, existingIds = [], memberIds = []) => {
+    const inserted = await api.insertCatalogItems(rows);
+    const cat = await api.listCatalog(); setCatalog(cat);
+    if (memberIds.length) {
+      const want = new Set([...inserted.map(r => r.id), ...existingIds]);
+      const ids = await assignFromCatalog(cat.filter(x => want.has(x.id)), memberIds);
+      await loadData();
+      if (ids.length) notifyAssignees(ids);
+      else setToast({ tone: "warning", text: "Imported. Nothing new was assigned (no links, or they already have these trainings)." });
+    }
+  };
   const deleteCatalogItems = async (ids) => { await api.deleteCatalogItems(ids); setCatalog(await api.listCatalog()); };
 
   const approveOne = async (requestId, remarks) => { await api.approveRequest(requestId, remarks); await loadData(); };
@@ -3706,7 +4092,8 @@ svg.lucide{display:block;flex-shrink:0}
   const updateUser = async (id, patch) => { await api.adminUpdateUser(id, patch); await loadData(); };
   const toggleUserActive = async (u) => { await api.setUserActive(u.id, !u.is_active); await loadData(); };
   const deleteUser = async (u) => { await api.deleteUser(u.id); await loadData(); setToast({ tone: "success", text: `${u.full_name} was deleted.` }); };
-  const sendSetupLink = async (u) => { const res = await api.sendSetupLink(u.id); await loadData(); return res; };
+  const sendSetupLink = async (u, deliver = "email") => { const res = await api.sendSetupLink(u.id, deliver); await loadData(); return res; };
+  const setTempPassword = async (u) => { const res = await api.setTempPassword(u.id); await loadData(); return res; };
 
   if (authLoading) return <LoadingScreen />;
   if (emailLink) return (
@@ -3726,14 +4113,18 @@ svg.lucide{display:block;flex-shrink:0}
 
   const isAdmin = profile.role === "admin";
   if (isAdmin) {
+    // People HR can assign trainings to (anyone who has a reporting manager to approve them).
+    const assignable = people.filter(p => p.is_active && p.role !== "admin" && (p.role === "reportee" || p.manager_id));
     return (
       <>
         <AppShell renderSidebar={close => <Sidebar profile={profile} tab={tab} setTab={t => { setTab(t); close(); }} onLogout={logout} myDone={0} myTotal={0} trainings={[]} currentFY={currentFY} pendingApprovalsCount={0} />}>
           {tab === "overview" && <AdminOverview people={people} trainings={trainings} requests={requests} onRefresh={refresh} refreshing={refreshing} onDeleteTraining={deleteTraining}
             onDetail={(t, p) => setDetailT({ training: t, part: p })} onExport={(reps, fy) => setExportOpen({ reportees: reps, fy })} />}
-          {tab === "users" && <UsersAdmin me={profile} people={people} onCreate={createUser} onCreateBulk={createUserQuiet} onUpdate={updateUser} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} onDelete={deleteUser} onRefresh={refresh} />}
-          {tab === "catalog" && <CatalogPage catalog={catalog} categories={categories} trainings={trainings} canAssign={false} onSave={saveCatalogItem} onImport={importCatalog} onDelete={deleteCatalogItems} />}
+          {tab === "users" && <UsersAdmin me={profile} people={people} onCreate={createUser} onCreateBulk={createUserQuiet} onUpdate={updateUser} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} onTempPassword={setTempPassword} onDelete={deleteUser} onRefresh={refresh} />}
+          {tab === "catalog" && <CatalogPage catalog={catalog} categories={categories} trainings={trainings} people={assignable} canAssign onSave={saveCatalogItem} onImport={importCatalog} onDelete={deleteCatalogItems} onAssign={id => setAdd({ catalogId: id })} onBulkAssign={ids => setBulk({ ids })} />}
         </AppShell>
+        {addModal && <AssignModal reportees={assignable} categories={categories} catalog={catalog} currentFY={currentFY} initialCatalogId={addModal.catalogId} onSubmit={addTraining} onClose={() => setAdd(false)} onGoToSettings={() => { setAdd(false); setTab("users"); }} />}
+        {bulkModal && <BulkAssignModal reportees={assignable} catalog={catalog} currentFY={currentFY} initialIds={bulkModal.ids} onSubmit={bulkAssign} onClose={() => setBulk(null)} onGoToSettings={() => { setBulk(null); setTab("users"); }} />}
         {detailTarget && <DetailModal training={detailTarget.training} part={detailTarget.part} reportees={people} requests={requests} onClose={() => setDetailT(null)} onDelete={deleteTraining} />}
         <Toast toast={toast} onClose={() => setToast(null)} />
         {exportOpen && <ExportModal reportees={exportOpen.reportees} trainings={trainings.filter(t => exportOpen.reportees.some(r => r.id === t.assigned_to))} requests={requests}
@@ -3760,15 +4151,17 @@ svg.lucide{display:block;flex-shrink:0}
       <AppShell renderSidebar={close => <Sidebar profile={profile} tab={tab} setTab={t => { setTab(t); close(); }} onLogout={logout} myDone={myDone} myTotal={myTotal} trainings={teamT} currentFY={currentFY} pendingApprovalsCount={approvals.length} showMyTrainings={isManager && hasOwnTrainings} />}>
         {tab === "dashboard" && isManager && <Dashboard reportees={reportees} trainings={teamT} requests={requests} onAdd={() => setAdd({})} onBulk={() => setBulk({ ids: [] })} onDeleteTraining={deleteTraining} onRefresh={refresh} refreshing={refreshing} fyList={allFYs} fyFilter={fyFilterD} setFyFilter={setFyFilterD} onExport={() => setExportOpen(true)} onDetail={(t, p) => setDetailT({ training: t, part: p })} />}
         {tab === "approvals" && isManager && <ApprovalsPanel approvals={approvals} onApprove={approveOne} onSendBack={sendBackOne} onRefresh={refresh} refreshing={refreshing} />}
-        {tab === "catalog" && isManager && <CatalogPage catalog={catalog} categories={categories} trainings={teamT} canAssign onSave={saveCatalogItem} onImport={importCatalog} onDelete={deleteCatalogItems} onAssign={id => setAdd({ catalogId: id })} onBulkAssign={ids => setBulk({ ids })} />}
-        {tab === "my-trainings" && hasOwnTrainings && <MyTrainings trainings={myT} requests={requests} onRequestApproval={(t, p) => setRequestT({ training: t, part: p })} onDetail={(t, p) => setDetailT({ training: t, part: p })} onStart={startTraining} onProgress={updateProgress} onSelfAssign={profile.manager_id ? () => setSelfAssignOpen(true) : null} fyList={allFYs.length ? allFYs : [getFY()]} fyFilter={fyFilterM} setFyFilter={setFyFilterM} />}
+        {tab === "catalog" && isManager && <CatalogPage catalog={catalog} categories={categories} trainings={teamT} people={reportees.filter(r => r.is_active)} canAssign onSave={saveCatalogItem} onImport={importCatalog} onDelete={deleteCatalogItems} onAssign={id => setAdd({ catalogId: id })} onBulkAssign={ids => setBulk({ ids })} />}
+        {tab === "my-trainings" && hasOwnTrainings && <MyTrainings trainings={myT} requests={requests} onRequestApproval={(t, p) => setRequestT({ training: t, part: p })} onDetail={(t, p) => setDetailT({ training: t, part: p })} onStart={t => setStartT({ training: t })} onProgress={updateProgress} onSelfAssign={profile.manager_id ? () => setSelfAssignOpen(true) : null} fyList={allFYs.length ? allFYs : [getFY()]} fyFilter={fyFilterM} setFyFilter={setFyFilterM} />}
         {tab === "knowledge-hub" && <KnowledgeHub trainings={trainings} reportees={people} requests={requests} onDetail={(t, p) => setDetailT({ training: t, part: p })} />}
         {tab === "reminders" && isManager && <Reminders reportees={reportees} trainings={teamT} settings={managerSettings} onSaveSettings={saveReminderSettings} onMarkReminded={markReminded} />}
-        {tab === "settings" && isManager && <Settings me={profile} people={people} reportees={reportees} trainings={teamT} currentFY={currentFY} onAddReportee={createUser} onAddReporteeBulk={createUserQuiet} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} onDelete={deleteUser} onFinalizeYear={finalizeYear} onRefreshReportees={refresh} />}
+        {tab === "settings" && isManager && <Settings me={profile} people={people} reportees={reportees} trainings={teamT} currentFY={currentFY} onAddReportee={createUser} onAddReporteeBulk={createUserQuiet} onToggleActive={toggleUserActive} onSendLink={sendSetupLink} onTempPassword={setTempPassword} onDelete={deleteUser} onFinalizeYear={finalizeYear} onRefreshReportees={refresh} />}
       </AppShell>
       {detailTarget && <DetailModal training={detailTarget.training} part={detailTarget.part} reportees={people} requests={requests} onClose={() => setDetailT(null)}
         onEdit={isManager && detailTarget.training.assigned_to !== profile.id ? t => setEditT(t) : null}
-        onDelete={isManager && detailTarget.training.assigned_to !== profile.id ? deleteTraining : null} />}
+        onDelete={isManager && detailTarget.training.assigned_to !== profile.id ? deleteTraining : null}
+        onInitiate={isManager && detailTarget.training.assigned_to !== profile.id ? t => setStartT({ training: t, forOther: people.find(x => x.id === t.assigned_to)?.full_name || "your reportee" }) : null} />}
+      {startT && <StartTrainingModal training={startT.training} forOther={startT.forOther} onSubmit={startTraining} onClose={() => setStartT(null)} />}
       <Toast toast={toast} onClose={() => setToast(null)} />
       {editTarget && <EditTrainingModal training={editTarget} categories={categories} onSubmit={editTraining} onClose={() => setEditT(null)} />}
       {requestTarget && <ApprovalRequestModal training={requestTarget.training} part={requestTarget.part} requests={requests} onSubmit={requestApproval} onClose={() => setRequestT(null)} />}
